@@ -6149,115 +6149,180 @@ class CateringApp(QMainWindow):
             return f"{int(quantita)} {unita}"
 
     def leggi_quantita_da_word(self, path_docx):
-        """Legge e AGGREGA le quantità da Word (Multi-Blocco) ignorando le voci non-cibo"""
+        """Legge quantità da Word - VERSIONE MIGLIORATA per tutti i formati"""
         if not os.path.exists(path_docx):
             print(f"❌ File Word non trovato: {path_docx}")
             return {}
-            
+        
         try:
             from docx import Document
-            import re
-            
             doc = Document(path_docx)
+            
             prodotti = {}
             
-            # 1. Estrai tutto il testo riga per riga dal documento
-            righe = []
+            print(f"\n📄 === LETTURA COMPLETA DA: {os.path.basename(path_docx)} ===")
+            
+            # Leggi TUTTO il testo del documento
+            all_text = ""
+            
+            # 1. LEGGI DA PARAGRAFI
             for para in doc.paragraphs:
                 if para.text.strip():
-                    righe.append(para.text.strip())
-                    
+                    all_text += para.text + "\n"
+            
+            # 2. LEGGI DA TABELLE  
             for table in doc.tables:
                 for row in table.rows:
                     for cell in row.cells:
-                        for p in cell.paragraphs:
-                            if p.text.strip():
-                                righe.append(p.text.strip())
-
-            # 2. Costruiamo una mappa sicura dei cibi per filtrare via gli accessori (tavoli, bicchieri, ecc.)
-            cibi_validi_lower = {}
-            if hasattr(self, 'voce_originale'):
-                for key, nome_orig in self.voce_originale.items():
-                    cat = self.voce_categoria.get(key, "")
-                    if cat in ["cibo", "dolci", "intolleranti"]:
-                        cibi_validi_lower[nome_orig.lower().strip()] = nome_orig
-
-            # 3. Pattern Regex di estrazione
-            # Pattern 1: Quantità in KG (es. 2.5 kg Prodotto, **2.5 kg Prodotto**)
-            pattern_kg = r'^\*?\*?(?:\(\d+\)\s*)?(\d+[\.,]?\d*)\s*kg\s+(.+?)\*?\*?$'
-            # Pattern 2: Quantità in PZ o numero puro (es. 15 pz Prodotto, 15 Prodotto)
-            pattern_num = r'^\*?\*?(?:\(\d+\)\s*)?(\d+)\s*(?:pz|porzioni)?\s*(.+?)\*?\*?$'
-
+                        if cell.text.strip():
+                            all_text += cell.text + "\n"
+            
+            # 3. PROCESSA TUTTO IL TESTO RIGA PER RIGA
+            righe = [r.strip() for r in all_text.split('\n') if r.strip()]
+            
+            print(f"📋 Analizzando {len(righe)} righe totali...")
+            
             for riga in righe:
-                quantita_val = None
-                nome_raw = None
-                is_kg = False
+                prodotto_trovato = False
                 
-                match_kg = re.match(pattern_kg, riga, re.IGNORECASE)
-                if match_kg:
-                    quantita_val = match_kg.group(1).replace(',', '.')
-                    nome_raw = match_kg.group(2).strip()
-                    is_kg = True
-                else:
-                    match_num = re.match(pattern_num, riga, re.IGNORECASE)
-                    if match_num:
-                        quantita_val = match_num.group(1)
-                        nome_raw = match_num.group(2).strip()
-
-                if quantita_val and nome_raw:
-                    nome_pulito = nome_raw.replace("**", "").replace("*", "").strip()
-                    
-                    # Ignora palesemente i campi di servizio / informazioni cliente
-                    skip_words = ["nr progr", "all'attenzione", "persone", "allestimento", "pronti", "tavoli", "tovagliato", "camerieri", "servizio"]
-                    if any(skip in nome_pulito.lower() for skip in skip_words):
-                        continue
-
-                    # CROSS-CHECK: È VERAMENTE CIBO?
-                    is_cibo = False
-                    nome_finale = nome_pulito
-                    
-                    # Check esatto/parziale col database dei cibi caricato
-                    for cibo_lower, cibo_vero in cibi_validi_lower.items():
-                        if cibo_lower == nome_pulito.lower() or cibo_lower in nome_pulito.lower():
-                            is_cibo = True
-                            nome_finale = cibo_vero
-                            break
-                            
-                    # Fallback di sicurezza: se non è nel DB, usa le funzioni ausiliarie esistenti
-                    if not is_cibo and hasattr(self, 'contains_food_items'):
-                        if self.contains_food_items([nome_pulito]) and not self.are_real_accessories([nome_pulito]):
-                            is_cibo = True
-
-                    if is_cibo:
-                        # ===== LA MAGIA DELL'AGGREGAZIONE =====
-                        # Se il prodotto è già stato trovato (hai incollato un blocco sotto), somma la quantità!
-                        if nome_finale in prodotti:
-                            q_esistente_str = str(prodotti[nome_finale]["quantita"])
-                            
-                            if is_kg or "kg" in q_esistente_str:
-                                val_es = float(q_esistente_str.replace("kg", "").strip()) if "kg" in q_esistente_str else float(''.join(filter(str.isdigit, q_esistente_str)))
-                                nuovo_tot = val_es + float(quantita_val)
-                                prodotti[nome_finale]["quantita"] = f"{nuovo_tot:.2f} kg"
+                # ========== PATTERN 1: PESO IN KG (PRIORITÀ ALTA) ==========
+                import re
+                
+                # Pattern per peso in kg (normale e grassetto)
+                patterns_kg = [
+                    r'^\*\*(\d+\.?\d*)\s*kg\s+(.+?)\*\*$',  # **3.00 kg Cous cous con verdure**
+                    r'^(\d+\.?\d*)\s*kg\s+(.+)$',           # 3.00 kg Cous cous con verdure
+                ]
+                
+                for pattern in patterns_kg:
+                    match = re.match(pattern, riga, re.IGNORECASE)
+                    if match:
+                        peso = float(match.group(1))
+                        nome = match.group(2).strip()
+                        
+                        # Pulisci nome da markdown
+                        nome = nome.replace("**", "").replace("*", "").strip()
+                        
+                        if nome in prodotti:
+                            # Accumula peso esistente
+                            if "kg" in str(prodotti[nome]):
+                                peso_esistente = float(str(prodotti[nome]).split()[0])
+                                prodotti[nome] = f"{peso_esistente + peso} kg"
+                                print(f"   🔄 {nome}: {peso_esistente} + {peso} = {peso_esistente + peso} kg")
                             else:
-                                val_es = int(''.join(filter(str.isdigit, q_esistente_str)))
-                                nuovo_tot = val_es + int(quantita_val)
-                                prodotti[nome_finale]["quantita"] = f"{nuovo_tot} pz"
+                                prodotti[nome] = f"{peso} kg"
+                                print(f"   ✅ {nome}: {peso} kg (nuovo)")
                         else:
-                            # Primo inserimento
-                            if is_kg:
-                                prodotti[nome_finale] = {"nome": nome_finale, "quantita": f"{float(quantita_val):.2f} kg"}
-                            else:
-                                prodotti[nome_finale] = {"nome": nome_finale, "quantita": f"{int(quantita_val)} pz"}
-
-            # Riformatta il dizionario per passarlo al resto del codice
-            risultato = {}
-            for i, (nome, info) in enumerate(prodotti.items()):
-                risultato[f"extracted_{i}"] = info
+                            prodotti[nome] = f"{peso} kg"
+                            print(f"   ✅ {nome}: {peso} kg (nuovo)")
+                        
+                        prodotto_trovato = True
+                        break
                 
+                if prodotto_trovato:
+                    continue
+                
+                # ========== PATTERN 2: NUMERI NORMALI ==========
+                # ========== PATTERN 2: NUMERI NORMALI E INTOLLERANTI ==========
+                patterns_num = [
+                    r'^\*\*(\d+)\s+(.+?)\*\*$',              # **3 Lasagne verdi al ragù**
+                    r'^\((\d+)\)\d+\s+pz\s+(.+)$',           # (2)1 pz Pizzette (con "pz")
+                    r'^\((\d+)\)\d+\s+(.+)$',                 # (2)1 Prodotto (senza "pz")
+                    r'^(\d+)\s+pz\s+(.+)$',                   # 15 pz Prodotto
+                    r'^(\d+)\s+(.+)$',                        # 15 Prodotto
+                ]
+
+                for i, pattern in enumerate(patterns_num):
+                    match = re.match(pattern, riga, re.IGNORECASE)
+                    if match:
+                        print(f"   ✅ MATCH con pattern {i+1}: {pattern}")
+                        
+                        if i in [1, 2]:  # Pattern per intolleranti
+                            quantita = int(match.group(1))  # Numero nelle parentesi
+                            nome = match.group(2).strip()
+                            quantita_str = f"{quantita} pz"
+                            print(f"   📋 INTOLLERANTI: quantità={quantita}, nome='{nome}'")
+                        else:  # Pattern normali
+                            quantita = int(match.group(1))
+                            nome = match.group(2).strip()
+                            
+                            # Pulisci nome da markdown
+                            nome = nome.replace("**", "").replace("*", "").strip()
+                            nome = " ".join(nome.split())
+                            
+                            if nome.lower().startswith("pz "):
+                                nome = nome[3:].strip()
+                                quantita_str = f"{quantita} pz"
+                            else:
+                                quantita_str = str(quantita)
+                        
+                        # ========== FILTRI PER ESCLUDERE RIGHE NON UTILI ==========
+                        nome_lower = nome.lower()
+                        skip_keywords = [
+                            "nr progr", "numero progressivo", "all'attenzione", "presso", 
+                            "persone", "allestimento", "pronti", "aperitivo", "coffee", 
+                            "tea", "lunch", "buffet", "break", "entro", "ore",
+                            "stand", "lunedì", "martedì", "mercoledì", "giovedì", 
+                            "venerdì", "sabato", "domenica", "gennaio", "febbraio", 
+                            "marzo", "aprile", "maggio", "giugno", "luglio", "agosto",
+                            "settembre", "ottobre", "novembre", "dicembre"
+                        ]
+                        
+                        if any(keyword == nome_lower or nome_lower.startswith(keyword + " ") for keyword in skip_keywords):
+                            print(f"   ⏭️ SALTATO (keyword): {nome}")
+                            continue
+                        
+                        # Salta se è solo un numero o troppo corto
+                        if len(nome.split()) == 0 or nome.isdigit() or len(nome) < 3:
+                            print(f"   ⏭️ SALTATO (troppo corto): {nome}")
+                            continue
+                        
+                        # ========== ACCUMULA QUANTITÀ ==========
+                        if nome in prodotti:
+                            # Prodotto già esistente, somma le quantità
+                            try:
+                                if "kg" not in str(prodotti[nome]):
+                                    quantita_esistente = int(str(prodotti[nome]).split()[0]) if " " in str(prodotti[nome]) else int(prodotti[nome])
+                                    nuova_quantita = quantita_esistente + quantita
+                                    prodotti[nome] = f"{nuova_quantita} pz" if "pz" in quantita_str else str(nuova_quantita)
+                                    print(f"   🔄 {nome}: {quantita_esistente} + {quantita} = {nuova_quantita}")
+                                else:
+                                    print(f"   ⚠️ Saltato accumulo kg/pezzi per: {nome}")
+                            except:
+                                prodotti[nome] = quantita_str
+                                print(f"   ⚠️ Errore accumulo, impostato: {nome} = {quantita}")
+                        else:
+                            # Nuovo prodotto
+                            prodotti[nome] = quantita_str
+                            print(f"   ✅ {nome}: {quantita_str} (nuovo)")
+                        
+                        prodotto_trovato = True
+                        break
+                
+                if not prodotto_trovato:
+                    # Debug per righe non riconosciute
+                    if len(riga) > 5 and not any(skip in riga.lower() for skip in ["bevande", "sala", "nr progr"]):
+                        print(f"   ❓ NON RICONOSCIUTO: '{riga}'")
+            
+            # ========== CONVERTI IN FORMATO FINALE ==========
+            risultato = {}
+            for i, (nome, quantita) in enumerate(prodotti.items()):
+                risultato[f"extracted_{i}"] = {
+                    'nome': nome,
+                    'quantita': quantita
+                }
+            
+            print(f"\n📊 === RIEPILOGO FINALE MIGLIORATO ===")
+            print(f"✅ Trovati {len(risultato)} prodotti:")
+            for key, info in risultato.items():
+                print(f"   📝 {info['nome']}: {info['quantita']}")
+            
             return risultato
             
         except Exception as e:
             print(f"❌ Errore lettura Word: {e}")
+            import traceback
+            traceback.print_exc()
             return {}
 
     
@@ -10548,7 +10613,7 @@ def main():
         palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
         app.setPalette(palette)
          
-        main_window = CateringApp() 
+        main_window = CateringApp()sss
         main_window.show()
         splash.close()
         
@@ -10557,6 +10622,6 @@ def main():
     splash.worker.finished.connect(start_main_application)
     
     sys.exit(app.exec())
-#Test
+
 if __name__ == "__main__":
     main()
