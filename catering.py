@@ -10613,7 +10613,7 @@ def main():
         palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
         app.setPalette(palette)
          
-        main_window = CateringApp()
+        main_window = CateringApp() 
         main_window.show()
         splash.close()
         
@@ -10622,6 +10622,6 @@ def main():
     splash.worker.finished.connect(start_main_application)
     
     sys.exit(app.exec())
-
+#Test
 if __name__ == "__main__":
     main()
