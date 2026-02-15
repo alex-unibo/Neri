@@ -1,0 +1,3833 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🍳 Monitor Cucina v2.0 - Ordini in Tempo Reale</title>
+    <!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.8em;
+            color: #1e3c72;
+            margin-bottom: 5px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+            font-weight: 700;
+        }
+
+        .company-subtitle {
+            font-size: 1.2em;
+            color: #2a5298;
+            font-weight: 600;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .status {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(46, 204, 113, 0.1);
+            padding: 8px 16px;
+            border-radius: 25px;
+            border: 2px solid #2ecc71;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            background: #2ecc71;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* NAVIGATION */
+        .navigation {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .back-button {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .back-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+        }
+
+        .breadcrumb {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 1.1em;
+            font-weight: 500;
+        }
+
+        /* VISTA LISTA ORDINI */
+        .orders-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .order-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .order-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .order-card.completed-order {
+            background: rgba(46, 204, 113, 0.1);
+            border: 2px solid #2ecc71;
+            opacity: 0.8;
+        }
+
+        /* Varianti per ordini completati e modificati */
+.order-card.completed-order .order-header {
+    background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); /* Verde sfumato */
+}
+
+        .order-card.completed-order .order-name {
+            text-decoration: line-through;
+            opacity: 0.7;
+        }
+        .order-card.modified-order {
+    border: 3px solid #e74c3c;
+    box-shadow: 0 8px 32px rgba(231, 76, 60, 0.3);
+    animation: modifiedOrderGlow 3s ease-in-out infinite;
+}
+
+.order-card.modified-order .order-header {
+    background: linear-gradient(135deg, #e67e22 0%, #d35400 100%); /* Arancione per differenziare */
+}
+
+
+@keyframes modifiedOrderGlow {
+    0%, 100% { 
+        box-shadow: 0 8px 32px rgba(231, 76, 60, 0.3);
+    }
+    50% { 
+        box-shadow: 0 12px 40px rgba(231, 76, 60, 0.5);
+    }
+}
+
+        .order-checkbox {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: #2ecc71;
+            z-index: 5;
+            border-radius: 4px;
+        
+            border: 2px solid #e67e22;
+            box-shadow: 0 8px 32px rgba(230, 126, 34, 0.3);
+            animation: newOrderPulse 2s infinite;
+        }
+
+        @keyframes newOrderPulse {
+            0% { 
+                box-shadow: 0 8px 32px rgba(230, 126, 34, 0.3);
+                transform: scale(1);
+            }
+            50% { 
+                box-shadow: 0 12px 40px rgba(230, 126, 34, 0.5);
+                transform: scale(1.02);
+            }
+            100% { 
+                box-shadow: 0 8px 32px rgba(230, 126, 34, 0.3);
+                transform: scale(1);
+            }
+        }
+
+        .new-badge {
+    position: absolute;
+    top: 8px;   /* PIÙ IN BASSO (era -8px) */
+    right: 15px; /* PIÙ A SINISTRA (era -8px) */
+    background: linear-gradient(45deg, #ff6b35, #f7931e); /* Arancione acceso */
+    color: white;
+    font-size: 1.0em; /* Leggermente più piccolo */
+    font-weight: bold;
+    padding: 6px 12px; /* Padding ridotto */
+    border-radius: 15px; /* Meno arrotondato */
+    text-transform: uppercase;
+    z-index: 10;
+    box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4); /* Ombra più leggera */
+    animation: newBadgePulse 2s ease-in-out infinite;
+    transform: scale(1.0); /* Dimensione normale */
+    border: 2px solid #fff; /* Bordo bianco per contrasto */
+}
+
+
+/* Animazione pulsante per il badge NEW */
+@keyframes newBadgePulse {
+    0%, 100% { 
+        transform: scale(1.1);
+        box-shadow: 0 6px 20px rgba(255, 107, 53, 0.5);
+    }
+    50% { 
+        transform: scale(1.2);
+        box-shadow: 0 8px 25px rgba(255, 107, 53, 0.7);
+    }
+}
+        .modified-badge {
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    background: linear-gradient(45deg, #e74c3c, #c0392b);
+    color: white;
+    font-size: 0.8em;
+    font-weight: bold;
+    padding: 6px 12px;
+    border-radius: 15px;
+    text-transform: uppercase;
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
+    animation: modifiedPulse 2s ease-in-out infinite;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.modified-badge:hover {
+    background: linear-gradient(45deg, #c0392b, #a93226);
+    transform: scale(1.1);
+    box-shadow: 0 6px 20px rgba(231, 76, 60, 0.6);
+}
+
+.modified-badge:after {
+    content: " 👆";
+    font-size: 0.7em;
+    opacity: 0.8;
+}
+
+@keyframes modifiedPulse {
+    0%, 100% { 
+        transform: scale(1);
+        box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
+    }
+    50% { 
+        transform: scale(1.05);
+        box-shadow: 0 6px 20px rgba(231, 76, 60, 0.6);
+    }
+}
+
+        @keyframes badgeBounce {
+            from { transform: translateY(0px); }
+            to { transform: translateY(-3px); }
+        }
+
+        .order-header {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); /* Rosso acceso sfumato */
+    color: white;
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Effetto luminoso per il gradiente rosso */
+.order-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+    animation: shimmer 3s infinite;
+}
+
+@keyframes shimmer {
+    0% { left: -100%; }
+    100% { left: 100%; }
+}
+
+        .order-name {
+            font-size: 1.3em;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .order-id {
+            font-size: 0.8em;
+            opacity: 0.8;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .order-body {
+            padding: 20px;
+        }
+
+        .order-date {
+            font-size: 1.1em;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .order-stats {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 10px;
+            background: rgba(52, 152, 219, 0.1);
+            border-radius: 8px;
+            border: 1px solid rgba(52, 152, 219, 0.2);
+            flex: 1;
+            margin: 0 5px;
+        }
+
+        .stat-number {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #e74c3c;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            color: #7f8c8d;
+        }
+
+        .order-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 15px;
+            border-top: 1px solid #ecf0f1;
+        }
+
+        .order-status {
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .status-attivo {
+            background: rgba(46, 204, 113, 0.2);
+            color: #27ae60;
+            border: 1px solid #2ecc71;
+        }
+
+        .view-details-btn {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .view-details-btn:hover {
+            background: linear-gradient(45deg, #2980b9, #1f4e79);
+        }
+
+        /* VISTA DETTAGLI */
+        .details-view {
+            display: none;
+        }
+
+        .details-header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .details-title {
+            font-size: 2em;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .details-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .info-item {
+            text-align: center;
+            padding: 15px;
+            background: rgba(52, 152, 219, 0.1);
+            border-radius: 10px;
+            border: 2px solid rgba(52, 152, 219, 0.2);
+        }
+
+        .info-label {
+            font-size: 0.9em;
+            color: #7f8c8d;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        .info-value {
+            font-size: 1.2em;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+
+        /* LISTA CIBO */
+        .food-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .food-item {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            border-left: 5px solid #8e44ad;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .food-item:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .food-item.completed {
+            background: rgba(46, 204, 113, 0.1);
+            border-left-color: #2ecc71;
+        }
+
+        .food-item.completed .food-name {
+            text-decoration: line-through;
+            color: #7f8c8d;
+        }
+
+        .food-item.completed .food-quantity {
+            opacity: 0.6;
+        }
+
+        .food-checkbox {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 25px;
+            height: 25px;
+            cursor: pointer;
+            accent-color: #2ecc71;
+            transform: scale(1.3);
+        }
+
+        .food-name {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            text-transform: capitalize;
+            padding-right: 40px; /* Spazio per checkbox */
+        }
+
+        .food-quantity {
+            font-size: 2.2em;
+            font-weight: bold;
+            color: #8e44ad;
+            text-align: center;
+            background: rgba(142, 68, 173, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px dashed #8e44ad;
+        }
+
+        .action-btn {
+            background: linear-gradient(45deg, #0077ff, #0077ff);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .action-btn:hover {
+            background: linear-gradient(45deg, #2980b9, #1f4e79);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+        }
+        .action-btn.secondary {
+            background: linear-gradient(45deg, #0077ff, #0077ff);
+        }
+        
+        .action-btn.secondary:hover {
+            background: linear-gradient(45deg, #0077ff, #0077ff);
+            box-shadow: 0 4px 12px rgba(46, 204, 113, 0.3);
+        }
+
+        .action-btn.primary {
+            background: linear-gradient(45deg, #27ae60, #2ecc71);
+        }
+        
+        .action-btn.primary:hover {
+            background: linear-gradient(45deg, #229954, #27ae60);
+            box-shadow: 0 4px 12px rgba(46, 204, 113, 0.3);
+        }
+        .action-btn.third {
+            background: linear-gradient(45deg, #fc0000, #fc0000);
+        }
+        
+        .action-btn.third:hover {
+            background: linear-gradient(45deg, #fc0000, #fc0000);
+            box-shadow: 0 4px 12px rgba(46, 204, 113, 0.3);
+        }
+        .action-btn.active {
+    background: linear-gradient(45deg, #e67e22, #d35400) !important;
+    color: white !important;
+    font-weight: bold;
+}
+.action-btn.danger {
+    background: linear-gradient(45deg, #e74c3c, #c0392b);
+    color: white;
+}
+
+.action-btn.danger:hover {
+    background: linear-gradient(45deg, #c0392b, #a93226);
+    box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+}
+
+        .order-card.selection-mode {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .order-card.selection-mode:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(52, 152, 219, 0.3);
+        }
+
+        .order-card.selected {
+            border: 3px solid #3498db;
+            box-shadow: 0 8px 32px rgba(52, 152, 219, 0.4);
+            background: rgba(52, 152, 219, 0.05);
+        }
+
+        .selection-indicator {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 25px;
+            height: 25px;
+            background: #3498db;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.8em;
+            z-index: 10;
+        }
+
+        .totals-view {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            margin: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .totals-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .totals-header h2 {
+            color: #2c3e50;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .totals-subtitle {
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+
+        .totals-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .total-item {
+            background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            border-left: 5px solid #8e44ad;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .total-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .total-item.completed {
+            background: rgba(46, 204, 113, 0.1);
+            border-left-color: #2ecc71;
+        }
+
+        .total-item.completed .total-item-name {
+            text-decoration: line-through;
+            color: #7f8c8d;
+        }
+
+        .total-item.completed .total-item-quantity {
+            opacity: 0.6;
+        }
+
+        .total-item-checkbox {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: #2ecc71;
+            z-index: 5;
+            border-radius: 4px;
+        }
+
+        .total-item-name {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            padding-right: 40px; /* Spazio per checkbox */
+        }
+
+        .total-item-quantity {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #8e44ad;
+            text-align: center;
+            background: rgba(142, 68, 173, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        /* STATI VUOTI E LOADING */
+        .loading, .no-orders, .no-food {
+            text-align: center;
+            padding: 60px 20px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            margin: 20px;
+        }
+
+        .loading {
+            color: #3498db;
+            font-size: 1.2em;
+        }
+
+        .loading .spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #ecf0f1;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .no-orders, .no-food {
+            color: #7f8c8d;
+            font-size: 1.2em;
+        }
+
+        .no-orders .icon, .no-food .icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .error {
+            background: #e74c3c;
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px;
+            text-align: center;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9em;
+        }
+
+        /* RESPONSIVE */
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .orders-grid, .food-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .status {
+                flex-direction: column;
+            }
+
+            .details-info {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* FILTRI E ORDINAMENTO */
+        .filters {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .filter-label {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .filter-select {
+            padding: 8px 12px;
+            border: 2px solid #ecf0f1;
+            border-radius: 6px;
+            background: white;
+            font-size: 0.9em;
+        }
+
+        .filter-select:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        /* SEZIONE INTOLLERANZE */
+.section-divider {
+    display: flex;
+    align-items: center;
+    margin: 30px 0 20px 0;
+    gap: 15px;
+}
+
+.divider-line {
+    flex: 1;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #e74c3c, transparent);
+    border-radius: 2px;
+}
+
+.divider-text {
+    font-size: 1.4em;
+    font-weight: bold;
+    color: #e74c3c;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    padding: 10px 20px;
+    border-radius: 25px;
+    border: 2px solid #e74c3c;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(231, 76, 60, 0.2);
+}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Monitor Cucina</h1>
+        <div class="company-subtitle">Neri Gestione Catering</div>
+        <div class="status">
+            <div class="status-item">
+                <div class="status-dot"></div>
+                <span id="connection-status">Connessione...</span>
+            </div>
+            <div class="status-item">
+                <span>📋 <span id="order-count">0</span> ordini totali</span>
+            </div>
+            <div class="status-item">
+                <span>📅 <span id="date-count">0</span> date attive</span>
+            </div>
+            <div class="status-item">
+                <span>🕒 <span id="last-update">--:--</span></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- NAVIGAZIONE -->
+        <div class="navigation">
+            <button class="back-button" id="back-button">
+                <span>←</span> Torna alla Lista
+            </button>
+            <div class="breadcrumb" id="breadcrumb">Lista Ordini</div>
+        </div>
+
+        <!-- FILTRI (solo nella vista lista) -->
+        <div class="filters" id="filters">
+            <div class="filter-group">
+                <span class="filter-label">📅 Data:</span>
+                <select class="filter-select" id="filter-date">
+                    <option value="">Tutte le date</option>
+                </select>
+            </div>
+            
+            <!-- 🔥 NUOVO: Filtro Solo Oggi -->
+            <div class="filter-group">
+                <button class="action-btn" id="filter-today-btn" onclick="toggleTodayFilter()">
+                    📅 Solo Oggi
+                </button>
+            </div>
+            
+            <div class="filter-group">
+                <span class="filter-label">🔤 Ordina:</span>
+                <select class="filter-select" id="sort-orders">
+                    <option value="date-asc">Data (crescente)</option>
+                    <option value="date-desc">Data (decrescente)</option>
+                    <option value="name-asc">Nome (A-Z)</option>
+                    <option value="name-desc">Nome (Z-A)</option>
+                    
+                </select>
+            </div>
+            <div class="filter-group">
+    <button class="action-btn" id="filter-todo-btn" onclick="toggleTodoFilter()">
+        📝 Da Fare
+    </button>
+</div>
+            <div class="filter-group">
+                <button class="action-btn" id="select-mode-btn">
+                    📋 Modalità Selezione
+                </button>
+            </div>
+            
+            <div class="filter-group" id="selection-controls" style="display: none;">
+                <button class="action-btn primary" id="select-all-btn" onclick="selectAllOrders()">
+                    🫵🏻 Seleziona Tutto
+                </button>
+                <button class="action-btn secondary" id="show-totals-btn">
+                    📊 Mostra Totali
+                </button>
+                <button class="action-btn third" id="delete-orders-btn" onclick="deleteSelectedOrders()">
+    🗑️ Cancella Ordini
+</button>
+                <button class="action-btn secondary" id="clear-selection-btn">
+                    🔄 Pulisci Selezione
+                </button>
+                <button class="action-btn third" id="exit-selection-btn">
+                    ⚠️ Esci
+                </button>
+            </div>
+        </div>
+
+        <!-- VISTA LISTA ORDINI -->
+        <div class="list-view" id="list-view">
+            <div id="orders-content">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <div>Caricamento ordini in corso...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VISTA DETTAGLI -->
+        <div class="details-view" id="details-view">
+            <div class="details-header">
+                <div class="details-title">
+                    <span>🍽️</span>
+                    <span id="details-customer-name">Nome Cliente</span>
+                </div>
+                <div class="details-info">
+                    <div class="info-item">
+                        <div class="info-label">Data Evento</div>
+                        <div class="info-value" id="details-date">--/--/----</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">ID Ordine</div>
+                        <div class="info-value" id="details-id">--------</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Prodotti</div>
+                        <div class="info-value" id="details-products-count">0</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Ultimo Aggiornamento</div>
+                        <div class="info-value" id="details-last-update">--:--</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="food-content">
+                
+                <!-- Qui verranno inseriti i prodotti -->
+            </div>
+            <div id="intolleranze-section" style="display: none;">
+                <div class="section-divider">
+                    <div class="divider-line"></div>
+                    <div class="divider-text">🌱 INTOLLERANZE 🌱</div>
+                    <div class="divider-line"></div>
+                </div>
+                
+                <div id="intolleranze-content" class="food-grid">
+                    <!-- Le intolleranze verranno caricate qui via JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p id="footer-text">🔄 Aggiornamento automatico ogni 15 secondi • Server: <span id="server-url">localhost:5000</span></p>
+    </div>
+
+    <script>
+        // Configurazione
+        // ===== CONFIGURAZIONE FIREBASE =====
+const firebaseConfig = {
+    apiKey: "AIzaSyBz5RJrsSTBXCr6pU4uOikL0iac9-95Og0",
+    authDomain: "neri-17bbd.firebaseapp.com",
+    projectId: "neri-17bbd",
+    storageBucket: "neri-17bbd.firebasestorage.app",
+    messagingSenderId: "502407130695",
+    appId: "1:502407130695:web:83a5406310e306ee274b62"
+};
+
+// Inizializza Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+let selectedOrdersBeforeTotals = new Set(); // 🔥 AGGIUNGI QUESTA RIGA
+
+// Modalità: Firebase o Server locale
+const USE_FIREBASE = true; // Cambia a false per usare server locale
+const SERVER_URL = null;
+        const UPDATE_INTERVAL = 15000; // 15 secondi
+
+        let isLoadingOrders = false; // Flag per prevenire chiamate multiple
+        let lastLoadTime = 0; // Timestamp dell'ultimo caricamento
+        let firebaseListener = null;
+        let updateTimer;
+        let isConnected = false;
+        let allOrders = [];
+        let filteredOrders = [];
+        let currentView = 'list'; // 'list' o 'details'
+        let currentOrderId = null;
+        let completedItems = new Set(); // Traccia gli elementi completati
+        let viewedOrders = new Set(); // Traccia gli ordini già visualizzati
+        let knownOrderIds = new Set(); // Ordini conosciuti dalla sessione precedente
+        let completedOrders = new Set(); // Traccia gli ordini completati
+        let selectionMode = false; // Modalità selezione attiva
+        let selectedOrders = new Set(); // Ordini selezionati
+        let showingTotals = false; // Vista totali attiva
+        let completedTotalItems = new Set(); // Traccia prodotti totali completati
+        let modifiedOrdersNotViewed = new Set(); // Ordini modificati che non sono stati ancora aperti
+                let todayFilterActive = false; // Filtro "Solo Oggi" attivo
+        let lastScrollPosition = 0; // Memorizza l'ultima posizione di scroll
+let isAutoUpdating = false; // Flag per distinguere aggiornamenti automatici da manuali
+        let todoFilterActive = false; // Filtro "Da fare" attivo
+
+
+        // Ottieni la data di oggi in formato DD/MM/YYYY
+    // Toggle del filtro "Da fare"
+function selectAllOrders() {
+    // Seleziona tutti gli ordini attualmente filtrati
+    filteredOrders.forEach(order => {
+        selectedOrders.add(order.id);
+    });
+    
+    // Aggiorna il display
+    displayOrders();
+    
+    // Aggiorna il contatore
+    updateSelectionCounter();
+    
+    console.log(`✅ Selezionati tutti gli ordini filtrati: ${selectedOrders.size} ordini`);
+}
+function updateSelectionCounter() {
+    const counterElement = document.querySelector('#select-mode-btn');
+    if (selectionMode && counterElement) {
+        counterElement.textContent = `📋 Selezionati (${selectedOrders.size})`;
+    }
+}
+function toggleTodoFilter() {
+    todoFilterActive = !todoFilterActive;
+    const btn = document.getElementById('filter-todo-btn');
+    
+    if (todoFilterActive) {
+        btn.textContent = '📝 Da Fare ✓';
+        btn.classList.add('active');
+        
+        console.log('🔥 Filtro DA FARE attivato');
+    } else {
+        btn.textContent = '📝 Da Fare';
+        btn.classList.remove('active');
+        
+        console.log('🔄 Filtro DA FARE disattivato');
+    }
+    
+    // Applica i filtri
+    applyFilters();
+}
+
+// Conta e mostra ordini da fare
+function updateTodoOrdersCount() {
+    if (!todoFilterActive) return;
+    
+    const todoOrders = allOrders.filter(order => !completedOrders.has(order.id));
+    
+    const btn = document.getElementById('filter-todo-btn');
+    btn.textContent = `📝 Da Fare (${todoOrders.length})`;
+    
+    console.log(`📊 Ordini da fare: ${todoOrders.length}`);
+}
+        function saveScrollPosition() {
+    lastScrollPosition = window.pageYOffset || document.documentElement.scrollTop;
+    console.log(`💾 Posizione scroll salvata: ${lastScrollPosition}px`);
+}
+
+// Ripristina la posizione di scroll salvata
+function restoreScrollPosition() {
+    if (lastScrollPosition > 0) {
+        // Usa setTimeout per assicurarsi che il DOM sia stato aggiornato
+        setTimeout(() => {
+            window.scrollTo({
+                top: lastScrollPosition,
+                behavior: 'instant' // Scroll immediato, senza animazione
+            });
+            console.log(`📍 Posizione scroll ripristinata: ${lastScrollPosition}px`);
+        }, 100); // Piccolo delay per sicurezza
+    }
+}
+        function toggleTodayFilter() {
+    todayFilterActive = !todayFilterActive;
+    const btn = document.getElementById('filter-today-btn');
+    
+    if (todayFilterActive) {
+        btn.textContent = '📅 Solo Oggi ✓';
+        btn.classList.add('active');
+        
+        // Reset solo il filtro data normale (incompatibile)
+        document.getElementById('filter-date').value = '';
+        
+        console.log(`🔥 Filtro OGGI attivato: ${getTodayDateString()}`);
+    } else {
+        btn.textContent = '📅 Solo Oggi';
+        btn.classList.remove('active');
+        
+        console.log('🔄 Filtro OGGI disattivato');
+    }
+    
+    // Applica i filtri
+    applyFilters();
+}
+function updateTodayOrdersCount() {
+    if (!todayFilterActive) return;
+    
+    const today = getTodayDateString();
+    const todayOrders = allOrders.filter(order => order.data_evento === today);
+    
+    const btn = document.getElementById('filter-today-btn');
+    btn.textContent = `📅 Solo Oggi (${todayOrders.length})`;
+    
+    console.log(`📊 Ordini di oggi (${today}): ${todayOrders.length}`);
+}
+function getTodayDateString() {
+    const today = new Date();
+    const day = String(today.getDate()).padStart(2, '0');
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const year = today.getFullYear();
+    return `${day}/${month}/${year}`;
+}
+        // Elementi DOM
+        const listView = document.getElementById('list-view');
+        const detailsView = document.getElementById('details-view');
+        const backButton = document.getElementById('back-button');
+        const breadcrumb = document.getElementById('breadcrumb');
+        const filters = document.getElementById('filters');
+        
+        const connectionStatus = document.getElementById('connection-status');
+        const orderCount = document.getElementById('order-count');
+        const dateCount = document.getElementById('date-count');
+        const lastUpdate = document.getElementById('last-update');
+        const serverUrl = document.getElementById('server-url');
+
+        // Inizializzazione
+        document.addEventListener('DOMContentLoaded',async function() {
+    // 🔥 CORREZIONE: Gestisci SERVER_URL null per Firebase
+    if (USE_FIREBASE) {
+        serverUrl.textContent = 'Firebase Cloud';
+        // Aggiorna anche il footer per Firebase
+        document.querySelector('.footer p').innerHTML = '🔥 Connesso a Firebase Cloud • Aggiornamento automatico ogni 30 secondi';
+    } else {
+        serverUrl.textContent = SERVER_URL ? SERVER_URL.replace('http://', '') : 'Server non configurato';
+        // Footer rimane uguale per server locale
+        document.querySelector('.footer p').innerHTML = `🔄 Aggiornamento automatico ogni 15 secondi • Server: <span id="server-url">${SERVER_URL.replace('http://', '')}</span>`;
+    }
+    
+    await loadCompletedItems();
+    await loadViewedOrders();
+    await loadModifiedOrdersNotViewed();
+    setupEventListeners();
+    loadOrders();
+    startAutoUpdate();
+    startAutoCleanup();
+
+});
+
+        function setupEventListeners() {
+    // Pulsante indietro
+    backButton.addEventListener('click', () => {
+        showListView();
+    });
+
+    // 🔥 CORREZIONE: Quando selezioni una data, NON resettare altri filtri
+    document.getElementById('filter-date').addEventListener('change', function() {
+        // 🔥 RIMOSSO: Il reset automatico degli altri filtri
+        // Ora puoi combinare data specifica + "Da Fare"
+        applyFilters();
+    });
+
+    document.getElementById('sort-orders').addEventListener('change', applyFilters);
+    
+    // Modalità selezione
+    document.getElementById('select-mode-btn').addEventListener('click', toggleSelectionMode);
+    document.getElementById('show-totals-btn').addEventListener('click', showTotalsView);
+    document.getElementById('clear-selection-btn').addEventListener('click', clearSelection);
+    document.getElementById('exit-selection-btn').addEventListener('click', exitSelectionMode);
+}
+// Funzione per salvare ordini completati su Firebase
+async function saveCompletedOrdersToFirebase() {
+    try {
+        const completionTimes = {};
+        // Crea timestamp per tutti gli ordini completati
+        completedOrders.forEach(orderId => {
+            completionTimes[orderId] = new Date().toISOString();
+        });
+        
+        await db.collection('monitor_state').doc('completed_orders').set({
+            orders: [...completedOrders],
+            completion_times: completionTimes,
+            last_updated: new Date().toISOString()
+        });
+        console.log('✅ Ordini completati salvati su Firebase');
+    } catch (error) {
+        console.error('❌ Errore salvataggio ordini completati:', error);
+    }
+}
+
+
+function logActiveFiltersFixed() {
+    const activeFilters = [];
+    const dateFilter = document.getElementById('filter-date').value;
+    
+    // Priorità: prima data, poi stato
+    if (dateFilter) {
+        activeFilters.push(`Data: ${formatDate(dateFilter)}`);
+    } else if (todayFilterActive) {
+        activeFilters.push('Solo Oggi');
+    }
+    
+    if (todoFilterActive) {
+        activeFilters.push('Da Fare');
+    }
+    
+    if (activeFilters.length > 0) {
+        console.log(`🎯 Filtri attivi: ${activeFilters.join(' + ')}`);
+        console.log(`📊 Risultati: ${filteredOrders.length} ordini mostrati`);
+        
+        // 🔥 NUOVO: Log dettagliato della logica applicata
+        if (dateFilter && todoFilterActive) {
+            console.log(`🔍 Logica: Ordini del ${formatDate(dateFilter)} che sono ancora da completare`);
+        } else if (todayFilterActive && todoFilterActive) {
+            console.log(`🔍 Logica: Ordini di oggi che sono ancora da completare`);
+        }
+    } else {
+        console.log(`📊 Nessun FILTRO attivo: ${filteredOrders.length} ordini mostrati`);
+    }
+}
+
+async function loadOrders() {
+    // 🛡️ PROTEZIONE CONTRO CHIAMATE MULTIPLE (AGGIUNGI ALL'INIZIO)
+    const now = Date.now();
+    if (isLoadingOrders) {
+        console.log('🚫 loadOrders già in esecuzione, chiamata ignorata');
+        return Promise.resolve();
+    }
+    
+    isLoadingOrders = true;
+    lastLoadTime = now;
+    
+    try {
+        showLoading();
+        
+        if (USE_FIREBASE) {
+            // ===== CARICA DA FIREBASE CON FILTRO MIGLIORATO =====
+            console.log('🔥 Tentativo connessione Firebase...');
+            
+            // Rimuovi listener precedente se esiste
+            if (firebaseListener) {
+                firebaseListener();
+                firebaseListener = null;
+                console.log('🔄 Listener Firebase precedente rimosso');
+            }
+            
+            const ordersSnapshot = await db.collection('ordini_singoli').get();
+            console.log(`📊 Firebase: trovati ${ordersSnapshot.size} documenti`);
+            
+            if (ordersSnapshot.empty) {
+                console.log('⚠️ Firebase: nessun ordine trovato');
+                allOrders = [];
+                updateStatus({ordini: [], totale_ordini: 0});
+                setConnectionStatus(true, 'Firebase Online (vuoto)');
+                updateFilters();
+                applyFilters();
+                return Promise.resolve();
+            }
+            
+            // 🔥 USA MAP PER PREVENIRE DUPLICATI E FILTRARE ORDINI CANCELLATI
+            const ordersMap = new Map();
+            let filteredOut = 0;
+            
+            for (const doc of ordersSnapshot.docs) {
+                const orderData = doc.data();
+                
+                // 🔥 FILTRO 1: Ordini temporanei
+                const nomeCliente = orderData.info?.nome_cliente || '';
+                if (nomeCliente.startsWith('~$') || nomeCliente.includes('~$')) {
+                    filteredOut++;
+                    continue;
+                }
+                
+                // 🔥 FILTRO 2: Ordini senza contenuto valido
+                if (!orderData.info || !orderData.info.nome_cliente) {
+                    console.log(`⏭️ Saltando ordine senza info valide: ${doc.id}`);
+                    filteredOut++;
+                    continue;
+                }
+                
+                // 🔥 FILTRO 3: Ordini con nome cliente vuoto o sospetto
+                const nomeClientePulito = nomeCliente.trim();
+                if (!nomeClientePulito || nomeClientePulito.length < 2) {
+                    console.log(`⏭️ Saltando ordine con nome troppo corto: "${nomeCliente}"`);
+                    filteredOut++;
+                    continue;
+                }
+                
+                // 🔥 FILTRO 4: Ordini con 0 prodotti (probabilmente corrotti)
+                const prodottiCount = Object.keys(orderData.cibo || {}).length;
+                if (prodottiCount === 0) {
+                    console.log(`⏭️ Saltando ordine senza prodotti: ${nomeCliente} (${doc.id})`);
+                    filteredOut++;
+                    continue;
+                }
+                
+                // 🔥 FILTRO 5: Ordini con pattern di nomi sospetti (come server_09-08-2025)
+                if (nomeClientePulito.includes('_') && /\d{2}-\d{2}-\d{4}/.test(nomeClientePulito)) {
+                    console.log(`⏭️ Saltando ordine con pattern sospetto: ${nomeCliente}`);
+                    filteredOut++;
+                    continue;
+                }
+                
+                const orderId = orderData.id || doc.id;
+                
+                // PREVIENI DUPLICATI usando Map
+                if (!ordersMap.has(orderId)) {
+                    ordersMap.set(orderId, {
+                        id: orderId,
+                        nome_cliente: orderData.info.nome_cliente,
+                        data_evento: orderData.info.data_evento || null,
+                        filename: orderData.info.filename || '',
+                        prodotti_count: prodottiCount,
+                        stato: orderData.stato || 'attivo',
+                        ultimo_aggiornamento: orderData.ultimo_aggiornamento || new Date().toISOString(),
+                        cibo: orderData.cibo || {}
+                    });
+                } else {
+                    console.warn(`⚠️ Mac: Ordine duplicato ignorato: ${orderId}`);
+                    filteredOut++;
+                }
+            }
+            
+            // Converti Map in Array
+            const ordiniPuliti = Array.from(ordersMap.values());
+            console.log(`✅ Filtrato: ${ordiniPuliti.length} ordini validi, ${filteredOut} ordini scartati`);
+            
+            const hasNewOrders = checkForNewOrders(ordiniPuliti);
+            allOrders = ordiniPuliti;
+            updateStatus({ordini: ordiniPuliti, totale_ordini: ordiniPuliti.length});
+            setConnectionStatus(true, 'Firebase Online');
+            
+        } else {
+            // ===== IL TUO CODICE SERVER LOCALE ESISTENTE =====
+            // (mantieni invariato)
+        }
+        
+        // Il resto della tua funzione loadOrders esistente...
+        updateFilters();
+        applyFilters();
+
+        if (showingTotals) {
+            setTimeout(async () => {
+                await checkTotalsModifications();
+            }, 500);
+        }
+
+        return Promise.resolve();
+        
+    } catch (error) {
+        console.error('Errore caricamento ordini:', error);
+        setConnectionStatus(false, 'Errore Connessione');
+        showError(`Impossibile connettersi: ${error.message}`);
+        return Promise.reject(error);
+    } finally {
+        // 🛡️ IMPORTANTE: Rilascia il lock sempre
+        isLoadingOrders = false;
+    }
+}
+
+// 🔥 AGGIUNGI questa funzione di cleanup:
+function cleanupFirebaseListener() {
+    if (firebaseListener) {
+        firebaseListener();
+        firebaseListener = null;
+        console.log('🧹 Mac: Listener Firebase pulito');
+    }
+}
+
+        function updateFilters() {
+            // Aggiorna filtro date
+            const dateFilter = document.getElementById('filter-date');
+            const currentSelection = dateFilter.value; // Salva selezione corrente
+            
+            const dates = [...new Set(allOrders.map(o => o.data_evento).filter(d => d))].sort();
+            
+            // Pulisci opzioni esistenti (tranne la prima)
+            while (dateFilter.children.length > 1) {
+                dateFilter.removeChild(dateFilter.lastChild);
+            }
+            
+            // Aggiungi nuove date
+            dates.forEach(date => {
+                const option = document.createElement('option');
+                option.value = date;
+                option.textContent = formatDate(date);
+                dateFilter.appendChild(option);
+            });
+            
+            // Ripristina la selezione precedente
+            if (currentSelection && dates.includes(currentSelection)) {
+                dateFilter.value = currentSelection;
+            }
+        }
+        
+
+        function applyFilters() {
+    const dateFilter = document.getElementById('filter-date').value;
+    const sortFilter = document.getElementById('sort-orders').value;
+    
+    // 🔥 CORREZIONE: Logica di filtro combinato CORRETTA
+    filteredOrders = allOrders.filter(order => {
+        // ===== PRIMO: Applica filtro DATA (se presente) =====
+        
+        // Filtro data specifica
+        if (dateFilter && order.data_evento !== dateFilter) {
+            return false; // Escludi ordini di altre date
+        }
+        
+        // Filtro "Solo Oggi" (solo se NON c'è una data specifica)
+        if (!dateFilter && todayFilterActive) {
+            const today = getTodayDateString();
+            if (order.data_evento !== today) {
+                return false; // Escludi ordini di altre date
+            }
+        }
+        
+        // ===== SECONDO: Applica filtro STATO (se presente) =====
+        
+        // Filtro "Da Fare" (si applica DOPO il filtro data)
+        if (todoFilterActive) {
+            if (completedOrders.has(order.id)) {
+                return false; // Escludi ordini completati
+            }
+        }
+        
+        // Se arriva qui, l'ordine passa tutti i filtri attivi
+        return true;
+    });
+    
+    // Ordina
+    filteredOrders.sort((a, b) => {
+        switch (sortFilter) {
+            case 'date-asc':
+                return (a.data_evento || '9999-12-31').localeCompare(b.data_evento || '9999-12-31');
+            case 'date-desc':
+                return (b.data_evento || '0000-01-01').localeCompare(a.data_evento || '0000-01-01');
+            case 'name-asc':
+                return a.nome_cliente.localeCompare(b.nome_cliente);
+            case 'name-desc':
+                return b.nome_cliente.localeCompare(a.nome_cliente);
+            default:
+                return 0;
+        }
+    });
+    
+    // Mostra ordini filtrati
+    if (currentView === 'list') {
+        displayOrders();
+    }
+    
+    // Aggiorna contatori con logica corretta
+    updateFilterCountersFixed();
+    
+    // Log dettagliato dei filtri attivi
+    logActiveFiltersFixed();
+}
+function updateFilterCountersFixed() {
+    const dateFilter = document.getElementById('filter-date').value;
+    
+    // Contatore "Solo Oggi" (solo se non c'è data specifica)
+    if (todayFilterActive && !dateFilter) {
+        const today = getTodayDateString();
+        let todayOrders = allOrders.filter(order => order.data_evento === today);
+        
+        // Se anche "Da Fare" è attivo, filtra ulteriormente
+        if (todoFilterActive) {
+            todayOrders = todayOrders.filter(order => !completedOrders.has(order.id));
+        }
+        
+        const todayBtn = document.getElementById('filter-today-btn');
+        todayBtn.textContent = `📅 Solo Oggi (${todayOrders.length})`;
+    }
+    
+    // Contatore "Da Fare" 
+    if (todoFilterActive) {
+        let todoOrders;
+        
+        if (dateFilter) {
+            // Se c'è una data specifica, conta solo quelli di quella data
+            todoOrders = allOrders.filter(order => 
+                order.data_evento === dateFilter && !completedOrders.has(order.id)
+            );
+        } else if (todayFilterActive) {
+            // Se c'è "Solo Oggi", conta solo quelli di oggi
+            const today = getTodayDateString();
+            todoOrders = allOrders.filter(order => 
+                order.data_evento === today && !completedOrders.has(order.id)
+            );
+        } else {
+            // Altrimenti tutti gli ordini da fare
+            todoOrders = allOrders.filter(order => !completedOrders.has(order.id));
+        }
+        
+        const todoBtn = document.getElementById('filter-todo-btn');
+        todoBtn.textContent = `📝 Da Fare (${todoOrders.length})`;
+    }
+}
+function updateFilterCounters() {
+    // Contatore "Solo Oggi" 
+    if (todayFilterActive) {
+        const today = getTodayDateString();
+        let todayOrders = allOrders.filter(order => order.data_evento === today);
+        
+        // Se anche "Da Fare" è attivo, filtra ulteriormente
+        if (todoFilterActive) {
+            todayOrders = todayOrders.filter(order => !completedOrders.has(order.id));
+        }
+        
+        const todayBtn = document.getElementById('filter-today-btn');
+        todayBtn.textContent = `📅 Solo Oggi (${todayOrders.length})`;
+    }
+    
+    // Contatore "Da Fare"
+    if (todoFilterActive) {
+        let todoOrders = allOrders.filter(order => !completedOrders.has(order.id));
+        
+        // Se anche "Solo Oggi" è attivo, filtra ulteriormente
+        if (todayFilterActive) {
+            const today = getTodayDateString();
+            todoOrders = todoOrders.filter(order => order.data_evento === today);
+        }
+        
+        const todoBtn = document.getElementById('filter-todo-btn');
+        todoBtn.textContent = `📝 Da Fare (${todoOrders.length})`;
+    }
+}
+
+
+
+
+        // 🔥 TROVA questa funzione nel tuo monitor.html e SOSTITUISCILA completamente:
+
+        function displayOrders() {
+    const ordersContent = document.getElementById('orders-content');
+    
+    if (showingTotals) {
+        return; // Non aggiornare se stiamo mostrando i totali
+    }
+    
+    if (!filteredOrders || filteredOrders.length === 0) {
+        showNoOrders();
+        return;
+    }
+
+    // 🔥 NUOVO: Salva la posizione solo durante aggiornamenti automatici
+    if (isAutoUpdating) {
+        saveScrollPosition();
+    }
+
+    let html = '<div class="orders-grid">';
+    
+    filteredOrders.forEach((order, index) => {
+        // ... tutto il tuo codice esistente per generare le cards ...
+        // (mantieni tutto uguale, non cambiare niente qui)
+        
+        const hasProducts = order.prodotti_count > 0;
+        const updateTime = new Date(order.ultimo_aggiornamento).toLocaleTimeString('it-IT');
+        const isNewOrder = !viewedOrders.has(order.id) && knownOrderIds.size > 0;
+        const isCompleted = completedOrders.has(order.id);
+        const isSelected = selectedOrders.has(order.id);
+        const isModifiedNotViewed = modifiedOrdersNotViewed.has(order.id);
+        
+        const clickHandler = selectionMode ? `toggleOrderSelection('${order.id}')` : `showOrderDetails('${order.id}')`;
+        
+        html += `
+            <div class="order-card ${isNewOrder ? 'new-order' : ''} ${isCompleted ? 'completed-order' : ''} ${isModifiedNotViewed ? 'modified-order' : ''} ${selectionMode ? 'selection-mode' : ''} ${isSelected ? 'selected' : ''}" onclick="${clickHandler}">
+                ${!selectionMode ? `<input type="checkbox" class="order-checkbox" ${isCompleted ? 'checked' : ''} 
+                       onchange="toggleOrderCompletion('${order.id}')" onclick="event.stopPropagation()">` : ''}
+                ${isSelected ? `<div class="selection-indicator">${Array.from(selectedOrders).indexOf(order.id) + 1}</div>` : ''}
+                ${isNewOrder && !selectionMode ? '<div class="new-badge">NEW</div>' : ''}
+                ${isModifiedNotViewed && !selectionMode ? `<div class="modified-badge" onclick="event.stopPropagation(); showOrderChanges('${order.id}')">MODIFICATO</div>` : ''}
+                <div class="order-header">
+                    <div class="order-name">${order.nome_cliente}</div>
+                </div>
+                <div class="order-body">
+                    <div class="order-date">
+                        📅 ${order.data_evento ? formatDate(order.data_evento) : 'Data non specificata'}
+                    </div>
+                    <div class="order-stats">
+                        <div class="stat-item">
+                            <div class="stat-number">${order.prodotti_count}</div>
+                            <div class="stat-label">Prodotti</div>
+                        </div>
+                    </div>
+                    <div class="order-footer">
+                        <div class="order-status status-${order.stato}">${isCompleted ? 'Completato' : order.stato}</div>
+                        ${!selectionMode ? `<button class="view-details-btn" onclick="event.stopPropagation(); showOrderDetails('${order.id}')">
+                            ${hasProducts ? 'Vedi Prodotti' : 'Dettagli'} →
+                        </button>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    ordersContent.innerHTML = html;
+    
+    // 🔥 NUOVO: Ripristina la posizione solo durante aggiornamenti automatici
+    if (isAutoUpdating) {
+        restoreScrollPosition();
+        isAutoUpdating = false; // Reset del flag
+    }
+}
+
+
+        // 🔥 TROVA questa funzione nel tuo monitor.html e SOSTITUISCILA completamente:
+
+        async function showOrderDetails(orderId) {
+    try {
+        // 🔥 NUOVO: Rimuovi il badge "MODIFICATO" quando si entra nell'ordine
+        const badgeRemoved = markModifiedOrderAsViewed(orderId);
+        if (badgeRemoved) {
+            console.log(`👁️ Entrato nell'ordine ${orderId}, badge MODIFICATO rimosso`);
+        }
+        
+        // Marca l'ordine come visualizzato (rimuove il badge NEW)
+        markOrderAsViewed(orderId);
+        
+        currentOrderId = orderId;
+        
+        // Trova l'ordine nella lista
+        const order = allOrders.find(o => o.id === orderId);
+        if (!order) {
+            throw new Error('Ordine non trovato');
+        }
+        
+        // Mostra vista dettagli
+        showDetailsView();
+        
+        // Aggiorna header dettagli
+        document.getElementById('details-customer-name').textContent = order.nome_cliente;
+        document.getElementById('details-date').textContent = order.data_evento ? formatDate(order.data_evento) : 'Non specificata';
+        document.getElementById('details-id').textContent = order.id;
+        document.getElementById('details-products-count').textContent = order.prodotti_count;
+        document.getElementById('details-last-update').textContent = new Date(order.ultimo_aggiornamento).toLocaleTimeString('it-IT');
+        
+        // Carica dettagli cibo
+        showFoodLoading();
+        
+        if (USE_FIREBASE) {
+            // ===== CARICA DA FIREBASE =====
+            if (order && order.cibo) {
+                displayFood(order.cibo);
+            } else {
+                showFoodError('Dettagli cibo non trovati in Firebase');
+            }
+        } else {
+            // ===== CARICA DA SERVER LOCALE =====
+            const currentOrder = allOrders.find(order => order.id === orderId);
+
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            displayFood(order.cibo, order.intolleranze);
+
+        }
+        
+    } catch (error) {
+        console.error('Errore caricamento dettagli:', error);
+        showFoodError(`Errore caricamento dettagli: ${error.message}`);
+    }
+}
+
+
+        function markOrderAsViewed(orderId) {
+            viewedOrders.add(orderId);
+            
+            // Salva in localStorage per persistenza
+            localStorage.setItem('viewedOrders', JSON.stringify([...viewedOrders]));
+            
+            // Aggiorna immediatamente la visualizzazione rimuovendo il badge NEW
+            const orderCard = document.querySelector(`[onclick*="${orderId}"]`);
+            if (orderCard) {
+                orderCard.classList.remove('new-order');
+                const badge = orderCard.querySelector('.new-badge');
+                if (badge) {
+                    badge.remove();
+                }
+            }
+        }
+
+        function checkForNewOrders(orders) {
+    const currentOrderIds = new Set(orders.map(o => o.id));
+    
+    // Se è il primo caricamento, marca tutti gli ordini come conosciuti
+    if (knownOrderIds.size === 0) {
+        knownOrderIds = new Set(currentOrderIds);
+        return;
+    }
+    
+    // Trova nuovi ordini
+    let hasNewOrders = false;
+    currentOrderIds.forEach(id => {
+        if (!knownOrderIds.has(id)) {
+            hasNewOrders = true;
+            console.log(`🆕 Nuovo ordine rilevato: ${id}`);
+        }
+    });
+    
+    // 🔥 NUOVO: Controlla modifiche negli ordini esistenti
+    orders.forEach(async (order) => {
+        if (completedOrders.has(order.id)) {
+            // Solo per ordini già completati, controlla se ci sono state modifiche
+            const hasModifications = await removeCompletedItemsForModifiedOrder(order.id);
+            if (hasModifications) {
+                console.log(`🔄 Modifiche rilevate e gestite per ordine ${order.id}`);
+                // Aggiorna la visualizzazione se necessario
+                if (currentView === 'list' && !selectionMode && !showingTotals) {
+                    displayOrders();
+                } else if (currentView === 'details' && currentOrderId === order.id) {
+                    const data = { cibo: getCurrentOrderFood() };
+                    displayFood(data.cibo);
+                }
+            }
+        }
+    });
+    
+    // Aggiorna set degli ordini conosciuti
+    knownOrderIds = new Set(currentOrderIds);
+    
+    // Salva in localStorage
+    localStorage.setItem('knownOrderIds', JSON.stringify([...knownOrderIds]));
+    
+    return hasNewOrders;
+}
+
+function displayFood(cibo) {
+    const foodContent = document.getElementById('food-content');
+    const intolleranzeSection = document.getElementById('intolleranze-section');
+    
+    if (!cibo || Object.keys(cibo).length === 0) {
+        showNoFood();
+        if (intolleranzeSection) {
+            intolleranzeSection.style.display = 'none';
+        }
+        return;
+    }
+
+    // 🔥 LISTA COMPLETA VOCI PER INTOLLERANTI (dal catering_data.json)
+    const vociIntolleranti = [
+        // Vegano
+        "Pizzette per vegani no mozzarella",
+          "Mini sandwich per vegani con verdure", 
+          "Spiedini pomodoro e olive",
+          "Ciotoline chinoa lime menta e melanzane + forch.bio",
+          "Bicch cous cous con verdure + cucch.bio",
+          "Bicch insalata di riso + verdure + forch.bio",
+          "Crostini con hummus di ceci e zucchine al forno",
+          "Bicchierino di pinzimonio",
+          "Bicch riso venere con mais pomodorini secchi e piselli+forch.bio",
+          "Crostini con verdure al forno",
+          "Bicch insalata di farro con edamame cavolo viola e pomodori secchi+ forch.bio",
+          "Bicch orzo con verdure + forch.bio",
+          "Pasta corta vegana fai tu",
+          "Pasta al forno vegana fai tu",
+          "Secondo vegano fai tu",
+          "Contorno vegano fai tu",
+          "Dolce vegano",
+          "Spiedino di frutta corto",
+          "Macedonia di frutta+cucch.bio",
+        
+        // No Lattosio
+        "Pizzette no mozzarella",
+          "Bicch insalata d'orzo con pesto fagiolini e mandorle+forch.bio",
+          "Bicch insalata di farro con edamame cavolo viola e pomodori secchi+ forch.bio",
+          "Mini sandwich farciti mix",
+          "Spiedini pomodoro e olive", 
+          "Bocconcini ananas e speck",
+          "Piroghe pollo nizzarda+forch.bio",
+          "Bicch. quinoa lime menta e melanzana+ forch.bio",
+          "Bicch. insalata di farro con verdure +forch.bio",
+          "Pasta corta no lattosio fai tu",
+          "Pasta al forno no lattosio fai tu",
+          "Secondo no lattosio fai tu",
+          "Contorno no lattosio fai tu",
+          "Dolce No lattosio",
+          "Spiedino frutta corto",
+          "Macedonia di frutta+cucch.bio",
+        
+        // Celiaci
+        "Pizzette senza glutine",
+          "Mini sandwich senza glutine farciti mix",
+          "Spiedini pomodoro e mozzarella",
+          "Involtino bresaola stracchino e rucola",
+          "Spiedini pomodori e olive",
+          "Indivia belga mousse di caprino e noci",
+          "Bocconcini ananas e speck",
+          "Piroghe pollo nizzarda+forch.bio",
+          "Rombetti di frittata",
+          "Rotolini di frittata cotto maionese e lattuga",
+          "Bicch.quinoa lime menta e melanzane+forch.bio",
+          "Pasta corta no glutine fai tu",
+          "Pasta al forno no glutine fai tu",
+          "Secondo no glutine fai tu",
+          "Contorno no glutine fai tu",
+          "Dolce senza glutine",
+          "Spiedino di frutta corto",
+          "Macedonia di frutta+cucch.bio",
+        
+        // No Uova
+        "Spiedini pomodoro e olive",
+          "Involtino bresaola stracchino e rucola",
+          "Bocconcini ananas e speck",
+          "Piroghe pollo nizzarda+forch.bio",
+          "Bicch. quinoa lime menta e melanzane",
+          "Bicch insalata di farro con verdure+ forch.bio",
+          "Pasta corta no uovo fai tu",
+          "Pasta al forno no uovo fai tu",
+          "Secondo no uovo fai tu",
+          "Contorno no uovo fai tu",
+          "Dolce no uova",
+          "Spiedino di frutta corto",
+          "Macedonia di frutta+cucch.bio"
+    ];
+    
+    // 🔥 SEPARA CIBO NORMALE DA INTOLLERANTI
+    const ciboNormale = {};
+    const ciboIntolleranti = {};
+    
+    Object.entries(cibo).forEach(([key, item]) => {
+        const nomeItem = item.nome;
+        
+        // Controlla se è una voce per intolleranti (confronto preciso + parole chiave)
+        const isIntollerante = vociIntolleranti.some(voceIntol => {
+            // Match esatto
+            if (nomeItem.toLowerCase() === voceIntol.toLowerCase()) {
+                return true;
+            }
+            // Match parziale (una contiene l'altra)
+            if (nomeItem.toLowerCase().includes(voceIntol.toLowerCase()) ||
+                voceIntol.toLowerCase().includes(nomeItem.toLowerCase())) {
+                return true;
+            }
+            return false;
+        });
+        
+        // Controllo aggiuntivo per parole chiave
+        const paroleDaIntolleranti = [
+            'vegani', 'vegano', 'no mozzarella', 'no lattosio', 'no glutine', 
+            'senza glutine', 'no uovo', 'senza uova', 'celiaci', 'celiaco'
+        ];
+        
+        const hasKeywords = paroleDaIntolleranti.some(parola => 
+            nomeItem.toLowerCase().includes(parola)
+        );
+        
+        if (isIntollerante || hasKeywords) {
+            ciboIntolleranti[key] = item;
+        } else {
+            ciboNormale[key] = item;
+        }
+    });
+    
+    console.log(`🍽️ Cibo normale: ${Object.keys(ciboNormale).length} voci`);
+    console.log(`🌱 Cibo intolleranti: ${Object.keys(ciboIntolleranti).length} voci`);
+
+    // 🔥 MOSTRA CIBO NORMALE (sopra)
+    let html = '<div class="food-grid">';
+    
+    Object.values(ciboNormale).forEach((item, index) => {
+        const itemId = `${currentOrderId}-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const isCompleted = completedItems.has(itemId);
+        
+        html += `
+<div class="food-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleFoodItem('${itemId}', event)">                <input type="checkbox" class="food-checkbox" ${isCompleted ? 'checked' : ''}
+                    onchange="toggleFoodItem('${itemId}', event)" onclick="event.stopPropagation()">
+                <div class="food-name">${item.nome}</div>
+                <div class="food-quantity">${item.quantita}</div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    foodContent.innerHTML = html;
+    
+    // 🔥 MOSTRA SEZIONE INTOLLERANZE SE CI SONO VOCI
+    if (Object.keys(ciboIntolleranti).length > 0) {
+        console.log('✅ Mostrando sezione intolleranze con linea rossa!');
+        
+        // Verifica che l'elemento intolleranze-section esista
+        if (!intolleranzeSection) {
+            console.error('❌ Elemento intolleranze-section non trovato nel DOM!');
+            return;
+        }
+        
+        // Mostra la sezione
+        intolleranzeSection.style.display = 'block';
+        intolleranzeSection.style.visibility = 'visible';
+        intolleranzeSection.style.opacity = '1';
+        
+        // Genera HTML per le voci intolleranti
+        let intolleranzeHtml = '<div class="food-grid">';
+        
+        Object.values(ciboIntolleranti).forEach((item, index) => {
+            const itemId = `${currentOrderId}-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const isCompleted = completedItems.has(itemId);
+            
+            intolleranzeHtml += `
+<div class="food-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleFoodItem('${itemId}', event)">                    <input type="checkbox" class="food-checkbox" ${isCompleted ? 'checked' : ''}
+                            onchange="toggleFoodItem('${itemId}', event)" onclick="event.stopPropagation()">
+                    <div class="food-name">${item.nome}</div>
+                    <div class="food-quantity">${item.quantita}</div>
+                </div>
+            `;
+        });
+        
+        intolleranzeHtml += '</div>';
+        
+        // Inserisci nell'elemento intolleranze-content
+        const intolleranzeContent = document.getElementById('intolleranze-content');
+        if (intolleranzeContent) {
+            intolleranzeContent.innerHTML = intolleranzeHtml;
+            console.log(`🌱 ${Object.keys(ciboIntolleranti).length} voci per intolleranti mostrate sotto la linea`);
+        } else {
+            console.error('❌ Elemento intolleranze-content non trovato!');
+        }
+        
+    } else {
+        // Nascondi sezione se non ci sono intolleranti
+        if (intolleranzeSection) {
+            intolleranzeSection.style.display = 'none';
+        }
+        console.log('ℹ️ Nessuna voce per intolleranti in questo ordine');
+    }
+}
+
+        // 🔥 TROVA questa funzione nel tuo monitor.html e SOSTITUISCILA completamente:
+
+        async function toggleFoodItem(itemId, event) {
+            const startTime = performance.now();
+            console.log('🕐 toggleFoodItem INIZIO');
+            
+            // 🔥 PREVIENI SCROLL AUTOMATICO
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            
+            // 📍 SALVA POSIZIONE SCROLL CORRENTE
+            const currentScrollPosition = window.pageYOffset || document.documentElement.scrollTop;
+            console.log('🕐 Step 1 completato:', performance.now() - startTime, 'ms');
+        
+            if (completedItems.has(itemId)) {
+                completedItems.delete(itemId);
+            } else {
+                completedItems.add(itemId);
+            }
+        
+            // 🎨 AGGIORNA SUBITO LA VISUALIZZAZIONE
+            console.log(`🎯 Toggle itemId: '${itemId}'`);
+            
+            // 🔥 DEBUG: Mostra primi 5 ID nel DOM
+            console.log('🔍 Primi 5 ID nel DOM:');
+            const allItems = document.querySelectorAll('.food-item');
+            for(let i = 0; i < Math.min(5, allItems.length); i++) {
+                console.log(`   ${i+1}. ID: '${allItems[i].id}'`);
+            }
+        
+            const foodItem = document.getElementById(itemId);
+            console.log(`🔍 Elemento trovato:`, foodItem);
+        
+            if (foodItem) {
+                console.log(`🔍 Classi PRIMA:`, foodItem.className);
+        
+                const checkbox = foodItem.querySelector('.food-checkbox');
+                const isCompleted = completedItems.has(itemId);
+                
+                if (checkbox) {
+                    checkbox.checked = isCompleted;
+                }
+                
+                if (isCompleted) {
+                    foodItem.classList.add('completed');
+                } else {
+                    foodItem.classList.remove('completed');
+                }
+                console.log(`🔍 Classi DOPO:`, foodItem.className);
+            }
+            
+            console.log('🕐 Step 2 completato:', performance.now() - startTime, 'ms');
+        
+            // Salva in localStorage per persistenza
+            saveCompletedItemsToFirebase();
+            console.log('🕐 Step 3 (Firebase) completato:', performance.now() - startTime, 'ms');
+            
+            // 🔥 NUOVO: Controlla se tutte le referenze dell'ordine corrente sono completate
+            if (currentOrderId) {
+                const allItemsCompleted = await checkIfAllItemsCompleted(currentOrderId);
+                
+                if (allItemsCompleted) {
+                    // Tutte le referenze sono completate → completa automaticamente l'ordine
+                    if (!completedOrders.has(currentOrderId)) {
+                        completedOrders.add(currentOrderId);
+                        saveCompletedOrdersToFirebase();
+                        
+                        // Salva il timestamp di completamento
+                        const completionTimes = JSON.parse(localStorage.getItem('orderCompletionTimes') || '{}');
+                        completionTimes[currentOrderId] = new Date().toISOString();
+                        saveCompletedItemsToFirebase();
+                        
+                        // Salva uno snapshot dell'ordine al momento del completamento
+                        saveOrderSnapshot(currentOrderId);
+                        
+                        console.log(`✅ Ordine ${currentOrderId} completato automaticamente (tutte le referenze completate)`);
+                    }
+                } else {
+                    // Non tutte le referenze sono completate → rimuovi completamento ordine se presente
+                    if (completedOrders.has(currentOrderId)) {
+                        completedOrders.delete(currentOrderId);
+                        saveCompletedOrdersToFirebase();
+                        
+                        // Rimuovi anche il timestamp di completamento
+                        const completionTimes = JSON.parse(localStorage.getItem('orderCompletionTimes') || '{}');
+                        delete completionTimes[currentOrderId];
+                        saveCompletedItemsToFirebase();
+                        
+                        console.log(`🔄 Ordine ${currentOrderId} non più completato (referenze incomplete)`);
+                    }
+                }
+            }
+            
+            console.log('🕐 toggleFoodItem FINE TOTALE:', performance.now() - startTime, 'ms');
+        
+            // 📍 RIPRISTINA POSIZIONE SCROLL
+            setTimeout(() => {
+                window.scrollTo({
+                    top: currentScrollPosition,
+                    behavior: 'instant'
+                });
+            }, 50);
+        }
+            
+         function toggleOrderCompletion(orderId) {
+    if (completedOrders.has(orderId)) {
+        // ❌ RIMUOVI COMPLETAMENTO
+        completedOrders.delete(orderId);
+        
+        // Rimuovi anche il timestamp di completamento
+        const completionTimes = JSON.parse(localStorage.getItem('orderCompletionTimes') || '{}');
+        delete completionTimes[orderId];
+        saveCompletedItemsToFirebase();
+        
+        // 🔥 RIMUOVI tutte le referenze di questo ordine (SINCRONO)
+        console.log(`🚫 Rimuovendo tutte le spunte dalle referenze dell'ordine ${orderId}`);
+        
+        // Usa getCurrentOrderFood() per ottenere le referenze correnti
+        const currentFood = getCurrentOrderFood();
+        Object.values(currentFood).forEach(item => {
+            const itemId = `${orderId}-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            completedItems.delete(itemId);
+        });
+        saveCompletedItemsToFirebase();
+        
+        console.log(`🚫 Rimosse tutte le spunte dalle referenze dell'ordine ${orderId}`);
+        
+    } else {
+        // ✅ AGGIUNGI COMPLETAMENTO
+        completedOrders.add(orderId);
+        
+        // Salva il timestamp di completamento
+        const completionTimes = JSON.parse(localStorage.getItem('orderCompletionTimes') || '{}');
+        completionTimes[orderId] = new Date().toISOString();
+        saveCompletedItemsToFirebase();
+
+        // 🔥 SPUNTA tutte le referenze ATTUALI come completate (SINCRONO)
+        console.log(`✅ Spuntando tutte le referenze dell'ordine ${orderId}`);
+        
+        // Usa getCurrentOrderFood() per ottenere le referenze correnti
+        const currentFood = getCurrentOrderFood();
+        Object.values(currentFood).forEach(item => {
+            const itemId = `${orderId}-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            completedItems.add(itemId);
+        });
+        saveCompletedItemsToFirebase();
+        
+        console.log(`✅ Spuntate tutte le referenze dell'ordine ${orderId} (${Object.keys(currentFood).length} referenze)`);
+        
+        // Salva snapshot in background (asincrono ma non blocca)
+        saveOrderSnapshot(orderId).catch(err => console.warn('Errore snapshot:', err));
+    }
+
+    // Salva in localStorage per persistenza
+    saveCompletedOrdersToFirebase();
+
+    // 🔥 AGGIORNA IMMEDIATAMENTE la visualizzazione delle referenze se siamo nei dettagli
+    if (currentView === 'details' && currentOrderId === orderId) {
+        const currentFood = getCurrentOrderFood();
+        displayFood(currentFood);
+    }
+
+    // Aggiorna la visualizzazione della lista ordini
+    displayOrders();
+}
+async function getCurrentOrderFoodAsync(orderId) {
+    try {
+        // ✅ NUOVO: Usa i dati Firebase invece del server
+        const currentOrder = allOrders.find(order => order.id === orderId);
+        if (!currentOrder || !currentOrder.cibo) {
+            console.warn(`❌ Ordine ${orderId} non trovato per getCurrentOrderFoodAsync`);
+            return {};
+        }
+        
+        return currentOrder.cibo || {};
+    } catch (error) {
+        console.warn('❌ Errore nel recuperare cibo ordine:', error);
+        return {};
+    }
+}
+
+
+function getOrderCompletionTime(orderId) {
+    try {
+        const completionTimes = JSON.parse(localStorage.getItem('orderCompletionTimes') || '{}');
+        return completionTimes[orderId] ? new Date(completionTimes[orderId]) : null;
+    } catch (e) {
+        return null;
+    }
+}
+async function saveOrderSnapshot(orderId) {
+    try {
+        // ✅ NUOVO: Usa i dati Firebase invece del server
+        const currentOrder = allOrders.find(order => order.id === orderId);
+        if (!currentOrder || !currentOrder.cibo) {
+            console.warn(`❌ Ordine ${orderId} non trovato per snapshot`);
+            return;
+        }
+        
+        // Salva lo snapshot
+        const snapshots = JSON.parse(localStorage.getItem('orderSnapshots') || '{}');
+        snapshots[orderId] = {
+            timestamp: new Date().toISOString(),
+            cibo: currentOrder.cibo
+        };
+        localStorage.setItem('orderSnapshots', JSON.stringify(snapshots));
+        console.log(`📸 Snapshot salvato per ordine ${orderId}`);
+        
+    } catch (error) {
+        console.warn('❌ Errore nel salvare snapshot:', error);
+    }
+}
+async function getOrderChanges(orderId) {
+    try {
+        console.log(`🔍 DEBUG: Controllo modifiche per ordine ${orderId}`);
+        
+        // Carica lo snapshot salvato
+        const snapshots = JSON.parse(localStorage.getItem('orderSnapshots') || '{}');
+        const snapshot = snapshots[orderId];
+        
+        if (!snapshot) {
+            console.log(`📋 Nessuno snapshot salvato per ordine ${orderId}`);
+            return null; // Nessuno snapshot disponibile
+        }
+        
+        // ✅ NUOVO: Carica i dati attuali da Firebase invece che dal server
+        const currentOrder = allOrders.find(order => order.id === orderId);
+        if (!currentOrder || !currentOrder.cibo) {
+            console.log(`❌ Ordine ${orderId} non trovato in allOrders`);
+            return null;
+        }
+        
+        const currentCibo = currentOrder.cibo || {};
+        const snapshotCibo = snapshot.cibo || {};
+        
+        console.log(`🔍 DEBUG currentCibo:`, currentCibo);  
+        console.log(`🔍 DEBUG snapshotCibo:`, snapshotCibo);
+        console.log(`🔍 DEBUG: Chiavi currentCibo: ${Object.keys(currentCibo).length}`);
+        console.log(`🔍 DEBUG: Chiavi snapshotCibo: ${Object.keys(snapshotCibo).length}`);
+        
+        const changes = [];
+        
+        // Controlla prodotti modificati o aggiunti
+        Object.values(currentCibo).forEach((currentItem, index) => {
+            const currentName = currentItem.nome;
+            const currentQuantity = currentItem.quantita;
+            const itemId = `${orderId}-${currentName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            
+            // Trova il prodotto corrispondente nello snapshot
+            const snapshotItem = Object.values(snapshotCibo).find(item => item.nome === currentName);
+            
+            if (!snapshotItem) {
+                // Prodotto aggiunto
+                changes.push({
+                    type: 'added',
+                    name: currentName,
+                    quantity: currentQuantity,
+                    itemId: itemId,
+                    index: index
+                });
+                console.log(`➕ Prodotto aggiunto: ${currentName}`);
+            } else if (snapshotItem.quantita !== currentQuantity) {
+                // Quantità modificata
+                changes.push({
+                    type: 'modified',
+                    name: currentName,
+                    oldQuantity: snapshotItem.quantita,
+                    newQuantity: currentQuantity,
+                    itemId: itemId,
+                    index: index
+                });
+                console.log(`🔄 Prodotto modificato: ${currentName} (${snapshotItem.quantita} → ${currentQuantity})`);
+            }
+        });
+        
+        // Controlla prodotti rimossi
+        Object.values(snapshotCibo).forEach((snapshotItem, index) => {
+            const snapshotName = snapshotItem.nome;
+            const currentItem = Object.values(currentCibo).find(item => item.nome === snapshotName);
+            const itemId = `${orderId}-${snapshotName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            
+            if (!currentItem) {
+                // Prodotto rimosso
+                changes.push({
+                    type: 'removed',
+                    name: snapshotName,
+                    quantity: snapshotItem.quantita,
+                    itemId: itemId,
+                    index: index
+                });
+                console.log(`❌ Prodotto rimosso: ${snapshotName}`);
+            }
+        });
+        
+        console.log(`🔍 DEBUG: Trovate ${changes.length} modifiche`);
+        return changes.length > 0 ? changes : null;
+        
+    } catch (error) {
+        console.warn('❌ Errore nel confrontare ordine:', error);
+        return null;
+    }
+}
+ // Funzione per marcare un ordine come modificato
+ async function markOrderAsModified(orderId) {
+    try {
+        // 🔥 AGGIUNGI SUBITO all'insieme locale (prima di Firebase)
+        const wasAlreadyModified = modifiedOrdersNotViewed.has(orderId);
+        modifiedOrdersNotViewed.add(orderId);
+        
+        // 🔥 AGGIORNA IMMEDIATAMENTE LA VISTA anche se già presente
+        if (currentView === 'list') {
+            console.log('🔄 Aggiornamento immediato della vista per mostrare badge MODIFICATO');
+            displayOrders(); // Mostra il badge subito
+        }
+        
+        // Poi gestisci Firebase (in background)
+        if (!wasAlreadyModified) {
+            console.log(`🔶 Aggiungendo ordine ${orderId} a Firebase come MODIFICATO...`);
+            
+            const doc = await db.collection('monitor_state').doc('modified_orders').get();
+            let modifiedOrders = [];
+            
+            if (doc.exists) {
+                modifiedOrders = doc.data().orders || [];
+            }
+            
+            // Aggiungi l'ordine se non è già presente in Firebase
+            if (!modifiedOrders.includes(orderId)) {
+                modifiedOrders.push(orderId);
+                
+                await db.collection('monitor_state').doc('modified_orders').set({
+                    orders: modifiedOrders,
+                    last_updated: new Date().toISOString()
+                });
+                
+                console.log(`✅ Ordine ${orderId} aggiunto a Firebase come MODIFICATO`);
+            }
+        } else {
+            console.log(`ℹ️ Ordine ${orderId} già presente localmente, aggiornando solo la vista`);
+        }
+        
+        // Salva anche in localStorage come backup
+        localStorage.setItem('modifiedOrdersNotViewed', JSON.stringify([...modifiedOrdersNotViewed]));
+        
+        console.log(`📊 Ordini modificati non visti: ${modifiedOrdersNotViewed.size}`);
+        
+    } catch (error) {
+        console.error('❌ Errore marcatura ordine modificato:', error);
+        
+        // 🔥 FALLBACK: aggiungi comunque localmente e aggiorna vista
+        modifiedOrdersNotViewed.add(orderId);
+        localStorage.setItem('modifiedOrdersNotViewed', JSON.stringify([...modifiedOrdersNotViewed]));
+        
+        if (currentView === 'list') {
+            console.log('🔄 Aggiornamento vista (fallback dopo errore)');
+            displayOrders();
+        }
+    }
+}
+function forceShowModifiedBadge(orderId) {
+    console.log(`🔥 FORZA visualizzazione badge MODIFICATO per ordine: ${orderId}`);
+    
+    // Aggiungi all'insieme
+    modifiedOrdersNotViewed.add(orderId);
+    console.log(`📊 ModifiedOrders size: ${modifiedOrdersNotViewed.size}`);
+    
+    // Trova e aggiorna la card dell'ordine nel DOM
+    const orderCards = document.querySelectorAll('.order-card');
+    let found = false;
+    
+    orderCards.forEach(card => {
+        const onclick = card.getAttribute('onclick');
+        if (onclick && onclick.includes(orderId)) {
+            found = true;
+            
+            // Rimuovi badge esistente se presente
+            const existingBadge = card.querySelector('.modified-badge');
+            if (existingBadge) {
+                existingBadge.remove();
+            }
+            
+            // Aggiungi il badge MODIFICATO
+            const badge = document.createElement('div');
+            badge.className = 'modified-badge';
+            badge.textContent = 'MODIFICATO';
+            badge.onclick = (e) => {
+                e.stopPropagation();
+                showOrderChanges(orderId);
+            };
+            
+            card.appendChild(badge);
+            card.classList.add('modified-order');
+            
+            console.log(`✅ Badge MODIFICATO aggiunto manualmente a ${orderId}`);
+        }
+    });
+    
+    if (!found) {
+        console.warn(`⚠️ Card per ordine ${orderId} non trovata nel DOM`);
+    }
+    
+    // Salva in localStorage
+    localStorage.setItem('modifiedOrdersNotViewed', JSON.stringify([...modifiedOrdersNotViewed]));
+}
+
+
+
+        // Funzione per rimuovere lo stato "modificato" quando si entra nell'ordine
+        function markModifiedOrderAsViewed(orderId) {
+            if (modifiedOrdersNotViewed.has(orderId)) {
+                modifiedOrdersNotViewed.delete(orderId);
+                
+                // Salva in localStorage
+                localStorage.setItem('modifiedOrdersNotViewed', JSON.stringify([...modifiedOrdersNotViewed]));
+                
+                console.log(`✅ Badge MODIFICATO rimosso per ordine ${orderId} (ordine visualizzato)`);
+                
+                // Aggiorna immediatamente la visualizzazione della lista
+                if (currentView === 'list') {
+                    displayOrders();
+                }
+                
+                return true; // Badge rimosso
+            }
+            
+            return false; // Nessun badge da rimuovere
+        }
+
+        // Carica gli ordini modificati dal localStorage all'avvio
+        async function loadModifiedOrdersNotViewed() {
+    try {
+        const doc = await db.collection('monitor_state').doc('modified_orders').get();
+        if (doc.exists) {
+            const data = doc.data();
+            const modifiedOrders = data.orders || [];
+            modifiedOrdersNotViewed = new Set(modifiedOrders);
+            console.log(`📂 Caricati ${modifiedOrdersNotViewed.size} ordini modificati da Firebase`);
+        } else {
+            modifiedOrdersNotViewed = new Set();
+            console.log('📂 Nessun ordine modificato trovato su Firebase');
+        }
+    } catch (e) {
+        console.warn('❌ Errore caricamento ordini modificati da Firebase:', e);
+        // Fallback a localStorage
+        try {
+            const saved = localStorage.getItem('modifiedOrdersNotViewed');
+            if (saved) {
+                const items = JSON.parse(saved);
+                modifiedOrdersNotViewed = new Set(items);
+                console.log(`📂 Fallback: caricati ${modifiedOrdersNotViewed.size} ordini modificati da localStorage`);
+            }
+        } catch (fallbackError) {
+            modifiedOrdersNotViewed = new Set();
+        }
+    }
+}
+
+        // Funzione per verificare se tutte le referenze di un ordine sono completate
+
+// Nuova funzione per rimuovere le spunte dalle referenze modificate
+async function removeCompletedItemsForModifiedOrder(orderId) {
+    console.log(`🔄 Controllo modifiche per ordine ${orderId}...`);
+    
+    const changes = await getOrderChanges(orderId);
+    
+    if (!changes || changes.length === 0) {
+        console.log(`✅ Nessuna modifica rilevata per ordine ${orderId}`);
+        return false;
+    }
+    
+    console.log(`⚠️ Trovate ${changes.length} modifiche per ordine ${orderId}:`, changes);
+    
+    let itemsToRemove = [];
+    let hasNewProducts = false;
+    let hasModifiedProducts = false;
+    
+    // Per ogni modifica, determina quali referenze gestire
+    changes.forEach(change => {
+        switch (change.type) {
+            case 'modified':
+                itemsToRemove.push(change.itemId);
+                hasModifiedProducts = true;
+                console.log(`🔄 Modifica quantità rilevata: ${change.name} (${change.oldQuantity} → ${change.newQuantity})`);
+                break;
+                
+            case 'added':
+                hasNewProducts = true;
+                console.log(`➕ Prodotto aggiunto: ${change.name} (${change.quantity}) - NON sarà auto-completato`);
+                break;
+                
+            case 'removed':
+                itemsToRemove.push(change.itemId);
+                console.log(`❌ Prodotto rimosso: ${change.name} (era ${change.quantity})`);
+                break;
+        }
+    });
+    
+    // Rimuovi le spunte dalle referenze modificate/rimosse
+    let removedCount = 0;
+    itemsToRemove.forEach(itemId => {
+        if (completedItems.has(itemId)) {
+            completedItems.delete(itemId);
+            removedCount++;
+            console.log(`🚫 Rimossa spunta da referenza: ${itemId}`);
+        }
+    });
+    
+    // Rimuovi completamento ordine se ci sono modifiche significative
+    if ((hasNewProducts || hasModifiedProducts || removedCount > 0) && completedOrders.has(orderId)) {
+        completedOrders.delete(orderId);
+        saveCompletedOrdersToFirebase();
+        console.log(`🔄 Rimosso completamento ordine generale: ordine modificato`);
+        
+        // Rimuovi anche il timestamp di completamento
+        const completionTimes = JSON.parse(localStorage.getItem('orderCompletionTimes') || '{}');
+        delete completionTimes[orderId];
+        localStorage.setItem('orderCompletionTimes', JSON.stringify(completionTimes));
+    }
+    
+    if (removedCount > 0 || hasNewProducts || hasModifiedProducts) {
+        // Salva le modifiche
+        saveCompletedItemsToFirebase();
+        
+        // 🔥 USA LA FUNZIONE FORCE per mostrare immediatamente il badge
+        console.log(`🔶 FORZA badge MODIFICATO per ordine ${orderId}...`);
+        forceShowModifiedBadge(orderId);
+        
+        // Poi chiama anche la versione normale per Firebase (in background)
+        setTimeout(() => {
+            markOrderAsModified(orderId);
+        }, 100);
+        
+        console.log(`✅ Gestite modifiche: ${removedCount} spunte rimosse, nuovi prodotti: ${hasNewProducts}, prodotti modificati: ${hasModifiedProducts}`);
+        return true;
+    }
+    
+    return false;
+}
+
+// Funzione per verificare se tutte le referenze di un ordine sono completate
+async function checkIfAllItemsCompleted(orderId) {
+    try {
+        const currentOrder = allOrders.find(order => order.id === orderId);
+        
+        if (!currentOrder || !currentOrder.cibo) {
+            return false;
+        }
+        
+        const cibo = currentOrder.cibo || {};
+        
+        // Controlla se tutte le referenze sono spuntate
+        for (const [key, item] of Object.entries(cibo)) {
+            const itemId = `${orderId}-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            if (!completedItems.has(itemId)) {
+                return false; // Almeno una referenza non è completata
+            }
+        }
+        
+        return true; // Tutte le referenze sono completate
+    } catch (error) {
+        console.warn('Errore verifica completamento referenze:', error);
+        return false;
+    }
+}
+async function showOrderChanges(orderId) {
+    const changes = await getOrderChanges(orderId);
+    
+    if (!changes || changes.length === 0) {
+        alert('Nessuna modifica rilevata per questo ordine.');
+        return;
+    }
+    
+    let message = "🔄 MODIFICHE RILEVATE:\n\n";
+    
+    changes.forEach(change => {
+        switch (change.type) {
+            case 'added':
+                message += `➕ AGGIUNTO: ${change.name} (${change.quantity})\n`;
+                break;
+            case 'removed':
+                message += `❌ RIMOSSO: ${change.name} (era ${change.quantity})\n`;
+                break;
+            case 'modified':
+                message += `🔄 MODIFICATO: ${change.name}\n   Prima: ${change.oldQuantity} → Ora: ${change.newQuantity}\n`;
+                break;
+        }
+    });
+    
+    message += "\n💡 Spunta e rispunta l'ordine per confermare di aver visto le modifiche.";
+    
+    alert(message);
+}
+async function toggleTotalItem(itemId, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    
+    const currentScrollPosition = window.pageYOffset || document.documentElement.scrollTop;
+    
+    if (completedTotalItems.has(itemId)) {
+        completedTotalItems.delete(itemId);
+    } else {
+        completedTotalItems.add(itemId);
+    }
+    
+    // Salva su Firebase
+    saveCompletedItemsToFirebase();
+    
+    // Aggiorna solo l'elemento specifico
+    const totalItem = document.querySelector(`[onclick*="${itemId}"]`);
+    if (totalItem) {
+        const checkbox = totalItem.querySelector('.total-item-checkbox');
+        const isCompleted = completedTotalItems.has(itemId);
+        
+        checkbox.checked = isCompleted;
+        
+        if (isCompleted) {
+            totalItem.classList.add('completed');
+        } else {
+            totalItem.classList.remove('completed');
+        }
+    }
+    
+    // 🔥 NUOVO: Controlla se tutti i totali sono completati
+    if (showingTotals && selectedOrdersBeforeTotals.size > 0) {
+        await checkAndCompleteSelectedOrders();
+    }
+    
+    // Ripristina scroll
+    setTimeout(() => {
+        window.scrollTo({
+            top: currentScrollPosition,
+            behavior: 'instant'
+        });
+    }, 50);
+}
+// 🔥 NUOVA FUNZIONE: Controlla e completa ordini se tutti i totali sono spuntati
+async function checkAndCompleteSelectedOrders() {
+    console.log('🔍 Controllo completamento totali...');
+    
+    // Conta tutti i prodotti totali visibili
+    const allTotalItems = document.querySelectorAll('.total-item');
+    const totalItemsCount = allTotalItems.length;
+    const completedCount = completedTotalItems.size;
+    
+    console.log(`📊 Totali: ${totalItemsCount} prodotti, ${completedCount} completati`);
+    
+    if (totalItemsCount > 0 && completedCount === totalItemsCount) {
+        console.log('🎉 TUTTI I TOTALI COMPLETATI! Marcando ordini come completati...');
+        
+        // Marca tutti gli ordini selezionati come completati
+        let ordiniCompletatiOra = 0;
+        
+        for (const orderId of selectedOrdersBeforeTotals) {
+            if (!completedOrders.has(orderId)) {
+                completedOrders.add(orderId);
+                ordiniCompletatiOra++;
+                console.log(`✅ Ordine ${orderId} marcato come completato`);
+            }
+        }
+        
+        // Salva su Firebase
+        await saveCompletedOrdersToFirebase();
+        
+        // Salva snapshot degli ordini completati
+        const completionTimes = {};
+        selectedOrdersBeforeTotals.forEach(orderId => {
+            completionTimes[orderId] = new Date().toISOString();
+        });
+        
+        // Salva i tempi di completamento
+        try {
+            await db.collection('monitor_state').doc('order_completion_times').set({
+                ...completionTimes,
+                last_updated: new Date().toISOString()
+            }, { merge: true });
+        } catch (error) {
+            console.error('❌ Errore salvataggio tempi completamento:', error);
+        }
+        
+        // Mostra notifica di successo
+        if (ordiniCompletatiOra > 0) {
+            showCompletionNotification(ordiniCompletatiOra);
+        }
+        
+    } else if (completedCount < totalItemsCount) {
+        // Se non tutti sono completati, rimuovi il completamento dagli ordini
+        console.log('🔄 Non tutti i totali completati, rimuovo completamento ordini...');
+        
+        let ordiniDecompletatiOra = 0;
+        
+        for (const orderId of selectedOrdersBeforeTotals) {
+            if (completedOrders.has(orderId)) {
+                completedOrders.delete(orderId);
+                ordiniDecompletatiOra++;
+                console.log(`🔄 Ordine ${orderId} rimosso dai completati`);
+            }
+        }
+        
+        if (ordiniDecompletatiOra > 0) {
+            await saveCompletedOrdersToFirebase();
+        }
+    }
+}
+
+// 🔥 NUOVA FUNZIONE: Mostra notifica di completamento
+function showCompletionNotification(count) {
+    // Crea elemento notifica
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, #27ae60, #2ecc71);
+        color: white;
+        padding: 20px 30px;
+        border-radius: 15px;
+        box-shadow: 0 8px 25px rgba(46, 204, 113, 0.3);
+        z-index: 10000;
+        font-size: 1.1em;
+        font-weight: bold;
+        max-width: 400px;
+        text-align: center;
+        animation: slideInFromRight 0.5s ease-out;
+    `;
+    
+    notification.innerHTML = `
+        <div style="font-size: 2em; margin-bottom: 10px;">🎉</div>
+        <div>TUTTI I TOTALI COMPLETATI!</div>
+        <div style="font-size: 0.9em; margin-top: 8px; opacity: 0.9;">
+            ${count} ordine${count > 1 ? 'i' : ''} marcato${count > 1 ? 'i' : ''} come completato${count > 1 ? 'i' : ''}
+        </div>
+    `;
+    
+    // Aggiungi CSS per animazione se non esiste
+    if (!document.getElementById('completion-animation-styles')) {
+        const styles = document.createElement('style');
+        styles.id = 'completion-animation-styles';
+        styles.textContent = `
+            @keyframes slideInFromRight {
+                from {
+                    transform: translateX(100%);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+            
+            @keyframes slideOutToRight {
+                from {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+                to {
+                    transform: translateX(100%);
+                    opacity: 0;
+                }
+            }
+        `;
+        document.head.appendChild(styles);
+    }
+    
+    document.body.appendChild(notification);
+    
+    // Rimuovi dopo 4 secondi
+    setTimeout(() => {
+        notification.style.animation = 'slideOutToRight 0.5s ease-in forwards';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 500);
+    }, 4000);
+}
+
+        function toggleSelectionMode() {
+            selectionMode = !selectionMode;
+            const btn = document.getElementById('select-mode-btn');
+            const controls = document.getElementById('selection-controls');
+            
+            if (selectionMode) {
+                btn.textContent = '📋 Modalità Attiva';
+                btn.classList.add('active');
+                controls.style.display = 'flex';
+                selectedOrders.clear();
+                showingTotals = false;
+            } else {
+                btn.textContent = '📋 Modalità Selezione';
+                btn.classList.remove('active');
+                controls.style.display = 'none';
+                selectedOrders.clear();
+                showingTotals = false;
+            }
+            
+            displayOrders();
+        }
+        // 🔥 MODIFICA la funzione deleteSelectedOrders nel monitor.html
+// per usare SEMPRE il server (anche con Firebase)
+
+// 🔥 SOSTITUISCI la funzione deleteSelectedOrders nel tuo monitor.html
+
+async function deleteSelectedOrders() {
+    if (selectedOrders.size === 0) {
+        alert('Nessun ordine selezionato da cancellare');
+        return;
+    }
+    
+    const orderCount = selectedOrders.size;
+    const confirmation = confirm(`⚠️ ATTENZIONE!\n\nStai per cancellare ${orderCount} ordine/i.\nQuesta azione sposterà i file in _cancellati e non potranno più riapparire.\n\nSei sicuro di voler procedere?`);
+    
+    if (!confirmation) {
+        return;
+    }
+    
+    try {
+        const orderIds = Array.from(selectedOrders);
+        console.log(`🗑️ Tentativo di cancellazione completa ordini:`, orderIds);
+        
+        // 🔥 USA SEMPRE IL SERVER per cancellazione completa (Firebase + file)
+        console.log('🔥 Cancellazione tramite server (Firebase + file fisici)...');
+        
+        // Determina l'URL del server - usa sempre localhost:5001 se Firebase è attivo
+        const serverUrl = USE_FIREBASE ? 'http://localhost:5001' : SERVER_URL;
+        console.log(`📡 Usando server: ${serverUrl}`);
+        
+        const response = await fetch(`${serverUrl}/api/delete-orders`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ orderIds: orderIds })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Errore server HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        console.log('📋 Risultato cancellazione:', result);
+        
+        if (result.success) {
+            // 🔥 PULISCI ANCHE GLI STATI ASSOCIATI AGLI ORDINI CANCELLATI
+            await cleanupDeletedOrdersState(orderIds);
+            
+            console.log(`✅ Server: ${result.deletedCount} ordini cancellati`);
+            console.log(`📁 File spostati: ${result.deletedFiles?.length || 0}`);
+            
+            let message = `✅ ${result.deletedCount} ordine/i cancellato/i con successo!`;
+            
+            if (result.deletedFiles && result.deletedFiles.length > 0) {
+                message += `\n📁 ${result.deletedFiles.length} file spostati in _cancellati`;
+            }
+            
+            if (result.errors && result.errors.length > 0) {
+                message += `\n⚠️ Alcuni errori: ${result.errors.length}`;
+                console.warn('⚠️ Errori durante cancellazione:', result.errors);
+            }
+            
+            alert(message);
+            
+            // Pulisci la selezione
+            selectedOrders.clear();
+            selectedOrdersBeforeTotals.clear();
+            exitSelectionMode();
+            
+            // 🔥 Aspetta 3 secondi prima di ricaricare per dare tempo al server
+            console.log('⏳ Attesa 3 secondi prima del ricaricamento...');
+            setTimeout(async () => {
+                console.log('🔄 Ricaricamento ordini dopo cancellazione...');
+                await loadOrders();
+            }, 3000);
+            
+        } else {
+            throw new Error(result.error || 'Errore durante la cancellazione');
+        }
+        
+    } catch (error) {
+        console.error('❌ Errore durante la cancellazione completa:', error);
+        
+        let errorMessage = '❌ Errore durante la cancellazione:\n';
+        
+        if (error.message.includes('fetch')) {
+            errorMessage += 'Impossibile contattare il server. Assicurati che sia in esecuzione.';
+        } else {
+            errorMessage += error.message;
+        }
+        
+        alert(errorMessage);
+    }
+}
+        
+        // 🔥 AGGIUNGI questa nuova funzione per pulire gli stati degli ordini cancellati
+        async function cleanupDeletedOrdersState(deletedOrderIds) {
+            try {
+                console.log('🧹 Pulizia stati ordini cancellati...');
+                
+                // 1. Rimuovi dalle spunte completate
+                for (const orderId of deletedOrderIds) {
+                    // Rimuovi tutte le spunte che iniziano con questo ordine ID
+                    const itemsToRemove = [...completedItems].filter(itemId => 
+                        itemId.startsWith(`${orderId}-`)
+                    );
+                    
+                    itemsToRemove.forEach(itemId => {
+                        completedItems.delete(itemId);
+                        console.log(`🧹 Rimossa spunta: ${itemId}`);
+                    });
+                    
+                    // Rimuovi dagli ordini completati
+                    if (completedOrders.has(orderId)) {
+                        completedOrders.delete(orderId);
+                        console.log(`🧹 Rimosso da ordini completati: ${orderId}`);
+                    }
+                    
+                    // Rimuovi dagli ordini visualizzati
+                    if (viewedOrders.has(orderId)) {
+                        viewedOrders.delete(orderId);
+                        console.log(`🧹 Rimosso da ordini visualizzati: ${orderId}`);
+                    }
+                    
+                    // Rimuovi dagli ordini modificati
+                    if (modifiedOrdersNotViewed.has(orderId)) {
+                        modifiedOrdersNotViewed.delete(orderId);
+                        console.log(`🧹 Rimosso da ordini modificati: ${orderId}`);
+                    }
+                }
+                
+                // 2. Salva tutto su Firebase
+                await saveCompletedItemsToFirebase();
+                await saveCompletedOrdersToFirebase();
+                
+                // 3. Salva anche in localStorage come backup
+                localStorage.setItem('viewedOrders', JSON.stringify([...viewedOrders]));
+                localStorage.setItem('modifiedOrdersNotViewed', JSON.stringify([...modifiedOrdersNotViewed]));
+                
+                console.log('✅ Pulizia stati completata');
+                
+            } catch (error) {
+                console.error('❌ Errore pulizia stati:', error);
+            }
+        }
+        
+// Funzione per salvare spunte su Firebase
+async function saveCompletedItemsToFirebase() {
+    try {
+        await db.collection('monitor_state').doc('completed_items').set({
+            items: [...completedItems],
+            last_updated: new Date().toISOString()
+        });
+        console.log('✅ Spunte salvate su Firebase');
+    } catch (error) {
+        console.error('❌ Errore salvataggio spunte:', error);
+    }
+}
+        function toggleOrderSelection(orderId) {
+    if (selectedOrders.has(orderId)) {
+        selectedOrders.delete(orderId);
+    } else {
+        selectedOrders.add(orderId);
+    }
+    
+    // Aggiorna solo la card specifica invece di tutto
+    const card = document.querySelector(`[onclick*="${orderId}"]`);
+    if (card) {
+        if (selectedOrders.has(orderId)) {
+            card.classList.add('selected');
+        } else {
+            card.classList.remove('selected');
+        }
+    }
+    
+    updateSelectionCounter(); // AGGIUNGI QUESTA RIGA
+}
+
+        function clearSelection() {
+    selectedOrders.clear();
+    displayOrders();
+    updateSelectionCounter();
+    console.log('🔄 Selezione pulita');
+}
+
+        function exitSelectionMode() {
+    // 🔥 NUOVO: Controlla se stavamo mostrando totali e se sono tutti completati
+    if (showingTotals && selectedOrdersBeforeTotals.size > 0) {
+        checkAndSaveCompletedTotalOrders();
+    }
+    
+    selectionMode = false;
+    selectedOrders.clear();
+    selectedOrdersBeforeTotals.clear(); // Reset
+    showingTotals = false;
+    completedTotalItems.clear();
+    
+    const btn = document.getElementById('select-mode-btn');
+    const controls = document.getElementById('selection-controls');
+    
+    btn.textContent = '📋 Modalità Selezione';
+    btn.classList.remove('active');
+    controls.style.display = 'none';
+    
+    displayOrders();
+}
+function checkAndSaveCompletedTotalOrders() {
+    console.log('🔍 Controllo completamento totali...');
+    
+    // Conta quanti prodotti totali ci sono
+    const totalItems = document.querySelectorAll('.total-item').length;
+    const completedTotalItemsCount = completedTotalItems.size;
+    
+    console.log(`📊 Prodotti totali: ${totalItems}, Completati: ${completedTotalItemsCount}`);
+    
+    if (totalItems > 0 && completedTotalItemsCount === totalItems) {
+        // Tutti i prodotti totali sono completati!
+        console.log('✅ Tutti i prodotti totali sono completati!');
+        
+        // Marca tutti gli ordini della selezione come completati
+        selectedOrdersBeforeTotals.forEach(orderId => {
+            if (!completedOrders.has(orderId)) {
+                completedOrders.add(orderId);
+                
+                // Salva timestamp di completamento
+                const completionTimes = JSON.parse(localStorage.getItem('orderCompletionTimes') || '{}');
+                completionTimes[orderId] = new Date().toISOString();
+                saveCompletedOrdersToFirebase();
+                
+                console.log(`✅ Ordine ${orderId} marcato come completato`);
+            }
+        });
+        
+        // Salva ordini completati
+        saveCompletedOrdersToFirebase();
+        
+        // Messaggio di conferma
+        const orderNames = Array.from(selectedOrdersBeforeTotals)
+            .map(id => allOrders.find(o => o.id === id)?.nome_cliente || id)
+            .join(', ');
+            
+        
+    } else {
+        console.log('⏸️ Non tutti i prodotti totali sono completati');
+    }
+}
+async function showTotalsView() {
+    if (selectedOrders.size === 0) {
+        alert('Seleziona almeno un ordine per vedere i totali');
+        return;
+    }
+    
+    showingTotals = true;
+    selectedOrdersBeforeTotals = new Set(selectedOrders);
+console.log(`📝 Salvati ${selectedOrdersBeforeTotals.size} ordini per controllo completamento`);
+    breadcrumb.textContent = `Totali Aggregati (${selectedOrders.size} ordini)`;
+    
+    const ordersContent = document.getElementById('orders-content');
+    ordersContent.innerHTML = '<div class="loading"><div class="spinner"></div><div>Caricamento totali...</div></div>';
+    
+    try {
+        const ordersData = [];
+        
+        console.log('🔥 Caricamento totali da Firebase (cache locale)...');
+        
+        // 🔥 USA LA CACHE LOCALE (allOrders) - molto più semplice!
+        for (const orderId of selectedOrders) {
+            const order = allOrders.find(o => o.id === orderId);
+            if (order && order.cibo) {
+                ordersData.push(order);
+                console.log(`📊 Dati ordine ${orderId} da cache locale`);
+            } else {
+                console.warn(`⚠️ Ordine ${orderId} non trovato in cache`);
+            }
+        }
+        
+        // Aggrega quantità di TUTTO il cibo (normale + intolleranti)
+        const totals = {};
+        ordersData.forEach(order => {
+            Object.values(order.cibo || {}).forEach(item => {
+                const name = item.nome;
+                const quantity = item.quantita;
+                
+                if (!totals[name]) {
+                    totals[name] = { totalQuantity: 0, unit: '' };
+                }
+                
+                const match = quantity.match(/(\d+\.?\d*)\s*(.*)/);
+                if (match) {
+                    const num = parseFloat(match[1]);
+                    const unit = match[2];
+                    totals[name].totalQuantity += num;
+                    totals[name].unit = unit;
+                }
+            });
+        });
+        
+        console.log(`✅ Totali calcolati per ${Object.keys(totals).length} prodotti unici`);
+        
+        // 🔥 USA LA NUOVA FUNZIONE CHE SEPARA CON LA LISTA
+        displayTotalsWithIntolleranze(totals, {}, selectedOrders.size);
+        
+    } catch (error) {
+        console.error('❌ Errore calcolo totali:', error);
+        ordersContent.innerHTML = `
+            <div class="error">
+                <strong>❌ Errore</strong><br>
+                Impossibile calcolare i totali: ${error.message}
+            </div>
+        `;
+    }
+}
+
+// 🔥 NUOVA FUNZIONE: Mostra totali con intolleranze
+function displayTotalsWithIntolleranze(totals, intolleranze, orderCount) {
+    const ordersContent = document.getElementById('orders-content');
+    
+    if (Object.keys(totals).length === 0 && Object.keys(intolleranze).length === 0) {
+        ordersContent.innerHTML = `
+            <div class="totals-view">
+                <div class="totals-header">
+                    <h2>📊 Totali Aggregati</h2>
+                    <div class="totals-subtitle">Ordini selezionati: ${orderCount}</div>
+                </div>
+                <div class="no-food">
+                    <div class="icon">🍽️</div>
+                    <div>Nessun prodotto trovato negli ordini selezionati</div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = `
+        <div class="totals-view">
+            <div class="totals-header">
+                <h2>📊 Totali Aggregati</h2>
+                <div class="totals-subtitle">Ordini selezionati: ${orderCount} • Prodotti unici: ${Object.keys(totals).length}</div>
+            </div>
+            <div class="totals-grid">
+    `;
+    
+    // Mostra cibo normale
+    const sortedItems = Object.entries(totals).sort(([a], [b]) => a.localeCompare(b));
+    
+    sortedItems.forEach(([name, data]) => {
+        const displayQuantity = data.totalQuantity % 1 === 0 ? 
+            data.totalQuantity.toString() : 
+            data.totalQuantity.toFixed(1);
+        
+        const itemId = `total-${name.replace(/\s+/g, '-').toLowerCase()}`;
+        const isCompleted = completedTotalItems.has(itemId);
+
+        html += `
+            <div class="total-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleTotalItem('${itemId}', event)">
+                <input type="checkbox" class="total-item-checkbox" ${isCompleted ? 'checked' : ''}>
+                <div class="total-item-content">
+                    <div class="total-item-name">${name}</div>
+                    <div class="total-item-quantity">${displayQuantity} ${data.unit}</div>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>'; // Chiude totals-grid
+    
+    // 🔥 NUOVO: Aggiungi sezione intolleranze se presenti
+    if (Object.keys(intolleranze).length > 0) {
+        html += `
+            <div class="section-divider">
+                <div class="divider-line"></div>
+                <div class="divider-text">INTOLLERANZE</div>
+                <div class="divider-line"></div>
+            </div>
+            <div class="intolleranze-grid">
+        `;
+        
+        for (const [tipo, dati] of Object.entries(intolleranze)) {
+            html += `
+                <div class="intolleranza-card">
+                    <div class="intolleranza-header">
+                        <div class="intolleranza-title">${tipo}</div>
+                        <div class="intolleranza-persone">${dati.persone} persone totali</div>
+                    </div>
+                    <div class="intolleranza-voci">
+            `;
+            
+            for (const voce of Object.values(dati.voci)) {
+                const itemId = `intolleranza-${tipo}-${voce.nome.replace(/\s+/g, '-').toLowerCase()}`;
+                const isCompleted = completedTotalItems.has(itemId);
+                
+                html += `
+                    <div class="intolleranza-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleTotalItem('${itemId}', event)">
+                        <input type="checkbox" class="total-item-checkbox" ${isCompleted ? 'checked' : ''}>
+                        <span class="intolleranza-nome">${voce.nome}</span>
+                        <span class="intolleranza-quantita">${voce.quantita} pz</span>
+                    </div>
+                `;
+            }
+            
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+        
+        html += '</div>'; // Chiude intolleranze-grid
+    }
+    
+    html += '</div>'; // Chiude totals-view
+    
+    ordersContent.innerHTML = html;
+    
+    console.log(`✅ Totali mostrati: ${Object.keys(totals).length} prodotti normali + ${Object.keys(intolleranze).length} tipi intolleranze`);
+}
+// Funzione per controllare modifiche nei totali
+// 🔥 MODIFICA LA FUNZIONE displayTotalsWithIntolleranze per usare la lista
+function displayTotalsWithIntolleranze(totals, intolleranze, orderCount) {
+    const ordersContent = document.getElementById('orders-content');
+    
+    // 🔥 LISTA COMPLETA VOCI PER INTOLLERANTI (stessa del monitor singolo)
+    const vociIntolleranti = [
+        "Pizzette per vegani no mozzarella",
+          "Mini sandwich per vegani con verdure", 
+          "Spiedini pomodoro e olive",
+          "Ciotoline chinoa lime menta e melanzane + forch.bio",
+          "Bicch cous cous con verdure + cucch.bio",
+          "Bicch insalata di riso + verdure + forch.bio",
+          "Crostini con hummus di ceci e zucchine al forno",
+          "Bicchierino di pinzimonio",
+          "Bicch riso venere con mais pomodorini secchi e piselli+forch.bio",
+          "Crostini con verdure al forno",
+          "Bicch insalata di farro con edamame cavolo viola e pomodori secchi+ forch.bio",
+          "Bicch orzo con verdure + forch.bio",
+          "Pasta corta vegana fai tu",
+          "Pasta al forno vegana fai tu",
+          "Secondo vegano fai tu",
+          "Contorno vegano fai tu",
+          "Dolce vegano",
+          "Spiedino di frutta corto",
+          "Macedonia di frutta+cucch.bio",
+        
+        // No Lattosio
+        "Pizzette no mozzarella",
+          "Bicch insalata d'orzo con pesto fagiolini e mandorle+forch.bio",
+          "Bicch insalata di farro con edamame cavolo viola e pomodori secchi+ forch.bio",
+          "Mini sandwich farciti mix",
+          "Spiedini pomodoro e olive", 
+          "Bocconcini ananas e speck",
+          "Piroghe pollo nizzarda+forch.bio",
+          "Bicch. quinoa lime menta e melanzana+ forch.bio",
+          "Bicch. insalata di farro con verdure +forch.bio",
+          "Pasta corta no lattosio fai tu",
+          "Pasta al forno no lattosio fai tu",
+          "Secondo no lattosio fai tu",
+          "Contorno no lattosio fai tu",
+          "Dolce No lattosio",
+          "Spiedino frutta corto",
+          "Macedonia di frutta+cucch.bio",
+        
+        // Celiaci
+        "Pizzette senza glutine",
+          "Mini sandwich senza glutine farciti mix",
+          "Spiedini pomodoro e mozzarella",
+          "Involtino bresaola stracchino e rucola",
+          "Spiedini pomodori e olive",
+          "Indivia belga mousse di caprino e noci",
+          "Bocconcini ananas e speck",
+          "Piroghe pollo nizzarda+forch.bio",
+          "Rombetti di frittata",
+          "Rotolini di frittata cotto maionese e lattuga",
+          "Bicch.quinoa lime menta e melanzane+forch.bio",
+          "Pasta corta no glutine fai tu",
+          "Pasta al forno no glutine fai tu",
+          "Secondo no glutine fai tu",
+          "Contorno no glutine fai tu",
+          "Dolce senza glutine",
+          "Spiedino di frutta corto",
+          "Macedonia di frutta+cucch.bio",
+        
+        // No Uova
+        "Spiedini pomodoro e olive",
+          "Involtino bresaola stracchino e rucola",
+          "Bocconcini ananas e speck",
+          "Piroghe pollo nizzarda+forch.bio",
+          "Bicch. quinoa lime menta e melanzane",
+          "Bicch insalata di farro con verdure+ forch.bio",
+          "Pasta corta no uovo fai tu",
+          "Pasta al forno no uovo fai tu",
+          "Secondo no uovo fai tu",
+          "Contorno no uovo fai tu",
+          "Dolce no uova",
+          "Spiedino di frutta corto",
+          "Macedonia di frutta+cucch.bio"
+    ];
+    
+    // 🔥 SEPARA I TOTALI IN CIBO NORMALE E INTOLLERANTI
+    const ciboNormale = {};
+    const ciboIntolleranti = {};
+    
+    console.log(`🔍 Separando ${Object.keys(totals).length} prodotti...`);
+    
+    for (const [name, data] of Object.entries(totals)) {
+        const isIntollerante = vociIntolleranti.some(voceIntol => 
+            voceIntol.toLowerCase() === name.toLowerCase() ||
+            name.toLowerCase().includes(voceIntol.toLowerCase()) ||
+            voceIntol.toLowerCase().includes(name.toLowerCase())
+        );
+        
+        if (isIntollerante) {
+            ciboIntolleranti[name] = data;
+            console.log(`🌱 INTOLLERANTE: ${name}`);
+        } else {
+            ciboNormale[name] = data;
+            console.log(`🍽️ NORMALE: ${name}`);
+        }
+    }
+    
+    console.log(`✅ Separazione completata: ${Object.keys(ciboNormale).length} normali + ${Object.keys(ciboIntolleranti).length} intolleranti`);
+    
+    if (Object.keys(ciboNormale).length === 0 && Object.keys(ciboIntolleranti).length === 0) {
+        ordersContent.innerHTML = `
+            <div class="totals-view">
+                <div class="totals-header">
+                    <h2>📊 Totali Aggregati</h2>
+                    <div class="totals-subtitle">Ordini selezionati: ${orderCount}</div>
+                </div>
+                <div class="no-food">
+                    <div class="icon">🍽️</div>
+                    <div>Nessun prodotto trovato negli ordini selezionati</div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = `
+        <div class="totals-view">
+            <div class="totals-header">
+                <h2>📊 Totali Aggregati</h2>
+                <div class="totals-subtitle">Ordini selezionati: ${orderCount} • Prodotti normali: ${Object.keys(ciboNormale).length} • Intolleranze: ${Object.keys(ciboIntolleranti).length}</div>
+            </div>
+    `;
+    
+    // 🔥 SEZIONE CIBO NORMALE
+    if (Object.keys(ciboNormale).length > 0) {
+        html += '<div class="totals-grid">';
+        
+        const sortedNormali = Object.entries(ciboNormale).sort(([a], [b]) => a.localeCompare(b));
+        
+        sortedNormali.forEach(([name, data]) => {
+            const displayQuantity = data.totalQuantity % 1 === 0 ? 
+                data.totalQuantity.toString() : 
+                data.totalQuantity.toFixed(1);
+            
+            const itemId = `total-${name.replace(/\s+/g, '-').toLowerCase()}`;
+            const isCompleted = completedTotalItems.has(itemId);
+
+            html += `
+                <div class="total-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleTotalItem('${itemId}', event)">
+                    <input type="checkbox" class="total-item-checkbox" ${isCompleted ? 'checked' : ''}>
+                    <div class="total-item-content">
+                        <div class="total-item-name">${name}</div>
+                        <div class="total-item-quantity">${displayQuantity} ${data.unit}</div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>'; // Chiude totals-grid
+    }
+    
+    // 🔥 SEZIONE INTOLLERANZE
+    if (Object.keys(ciboIntolleranti).length > 0) {
+        html += `
+            <div class="section-divider">
+                <div class="divider-line"></div>
+                <div class="divider-text">INTOLLERANZE</div>
+                <div class="divider-line"></div>
+            </div>
+            <div class="totals-grid">
+        `;
+        
+        const sortedIntolleranti = Object.entries(ciboIntolleranti).sort(([a], [b]) => a.localeCompare(b));
+        
+        sortedIntolleranti.forEach(([name, data]) => {
+            const displayQuantity = data.totalQuantity % 1 === 0 ? 
+                data.totalQuantity.toString() : 
+                data.totalQuantity.toFixed(1);
+            
+            const itemId = `intol-${name.replace(/\s+/g, '-').toLowerCase()}`;
+            const isCompleted = completedTotalItems.has(itemId);
+
+            html += `
+                <div class="total-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleTotalItem('${itemId}', event)">
+                    <input type="checkbox" class="total-item-checkbox" ${isCompleted ? 'checked' : ''}>
+                    <div class="total-item-content">
+                        <div class="total-item-name">${name}</div>
+                        <div class="total-item-quantity">${displayQuantity} ${data.unit}</div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>'; // Chiude intolleranze-grid
+    }
+    
+    html += '</div>'; // Chiude totals-view
+    
+    ordersContent.innerHTML = html;
+    
+    console.log(`✅ Totali mostrati: ${Object.keys(ciboNormale).length} prodotti normali + ${Object.keys(ciboIntolleranti).length} intolleranze`);
+}
+
+// 🔥 MODIFICA ANCHE showTotalsView() per usare la separazione semplice
+
+// Funzione per eliminare automaticamente ordini vecchi
+async function autoDeleteOldOrders() {
+    console.log('🧹 Controllo ordini da eliminare (>24h)...');
+    
+    const now = new Date();
+    const ordersToDelete = [];
+    
+    // Trova ordini con data evento passata di oltre 24h
+    allOrders.forEach(order => {
+        if (!order.data_evento) return; // Salta ordini senza data
+        
+        try {
+            // Converte "DD/MM/YYYY" in oggetto Date
+const parts = order.data_evento.split('/');
+const orderDate = new Date(parts[2], parts[1] - 1, parts[0]);
+
+// Aggiunge 24 ore alla data dell'ordine
+const expiryDate = new Date(orderDate.getTime() + (24 * 60 * 60 * 1000));
+
+// 🔍 DEBUG: Mostra date per debug
+console.log(`🔍 Ordine: ${order.nome_cliente}`);
+console.log(`📅 Data evento: ${order.data_evento}`);
+console.log(`📅 Data parsed: ${orderDate}`);
+console.log(`⏰ Scadenza: ${expiryDate}`);
+console.log(`⏰ Ora attuale: ${now}`);
+console.log(`❓ Da eliminare: ${now > expiryDate}`);
+
+if (now > expiryDate) {
+    ordersToDelete.push(order.id);
+    console.log(`🗑️ Ordine da eliminare: ${order.nome_cliente} (${order.data_evento})`);
+}
+        } catch (error) {
+            console.warn(`⚠️ Errore parsing data ordine ${order.id}:`, error);
+        }
+    });
+    
+    if (ordersToDelete.length === 0) {
+        console.log('✅ Nessun ordine da eliminare');
+        return;
+    }
+    
+    console.log(`🧹 Eliminando ${ordersToDelete.length} ordini scaduti...`);
+    
+    try {
+        if (USE_FIREBASE) {
+            // Elimina da Firebase
+            const batch = db.batch();
+            ordersToDelete.forEach(orderId => {
+                const docRef = db.collection('ordini_singoli').doc(orderId);
+                batch.delete(docRef);
+            });
+            await batch.commit();
+            console.log(`✅ ${ordersToDelete.length} ordini eliminati da Firebase`);
+        } else {
+            // Elimina da server locale
+            const response = await fetch(`${SERVER_URL}/api/delete-orders`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderIds: ordersToDelete })
+            });
+            
+            if (response.ok) {
+                console.log(`✅ ${ordersToDelete.length} ordini eliminati dal server`);
+            }
+        }
+        
+        // Ricarica ordini
+        await loadOrders();
+        
+    } catch (error) {
+        console.error('❌ Errore auto-eliminazione:', error);
+    }
+}
+
+// Avvia controllo automatico ogni ora
+// Avvia controllo automatico ogni 30 secondi
+function startAutoCleanup() {
+    // Controllo immediato all'avvio
+    setTimeout(autoDeleteOldOrders, 5000); // Dopo 5 secondi dall'avvio
+    
+    // Poi ogni 30 secondi (stesso intervallo dell'aggiornamento ordini)
+    setInterval(autoDeleteOldOrders, 30 * 1000); // 30 secondi
+    console.log('🧹 Auto-cleanup attivato (controllo ogni 30 secondi)');
+}
+
+        function displayTotals(totals, orderCount) {
+            const ordersContent = document.getElementById('orders-content');
+            
+            if (Object.keys(totals).length === 0) {
+                ordersContent.innerHTML = `
+                    <div class="totals-view">
+                        <div class="totals-header">
+                            <h2>📊 Totali Aggregati</h2>
+                            <div class="totals-subtitle">Ordini selezionati: ${orderCount}</div>
+                        </div>
+                        <div class="no-food">
+                            <div class="icon">🍽️</div>
+                            <div>Nessun prodotto trovato negli ordini selezionati</div>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = `
+                <div class="totals-view">
+                    <div class="totals-header">
+                        <h2>📊 Totali Aggregati</h2>
+                        <div class="totals-subtitle">Ordini selezionati: ${orderCount} • Prodotti unici: ${Object.keys(totals).length}</div>
+                    </div>
+                    <div class="totals-grid">
+            `;
+            
+            // Ordina per nome prodotto
+            const sortedItems = Object.entries(totals).sort(([a], [b]) => a.localeCompare(b));
+            
+            sortedItems.forEach(([name, data]) => {
+                const displayQuantity = data.totalQuantity % 1 === 0 ? 
+                    data.totalQuantity.toString() : 
+                    data.totalQuantity.toFixed(1);
+                
+                const itemId = `total-${name.replace(/\s+/g, '-').toLowerCase()}`;
+const isCompleted = completedTotalItems.has(itemId);
+
+html += `
+    <div class="total-item ${isCompleted ? 'completed' : ''}" onclick="toggleTotalItem('${itemId}', event)">
+        <input type="checkbox" class="total-item-checkbox" ${isCompleted ? 'checked' : ''} 
+               onchange="toggleTotalItem('${itemId}', event)" onclick="event.stopPropagation()">
+        <div class="total-item-name">${name}</div>
+        <div class="total-item-quantity">${displayQuantity} ${data.unit}</div>
+    </div>
+`;
+            });
+            
+            html += `
+                    </div>
+                </div>
+            `;
+            
+            ordersContent.innerHTML = html;
+        }
+
+        function getCurrentOrderFood() {
+            // Questa funzione dovrebbe ritornare il cibo dell'ordine corrente
+            // Implementazione semplificata - potrebbe dover essere migliorata
+            const lastFoodGrid = document.querySelector('.food-grid');
+            if (!lastFoodGrid) return {};
+            
+            const items = {};
+            const foodItems = lastFoodGrid.querySelectorAll('.food-item');
+            foodItems.forEach((item, index) => {
+                const nome = item.querySelector('.food-name').textContent;
+                const quantita = item.querySelector('.food-quantity').textContent;
+                items[index] = { nome, quantita };
+            });
+            
+            return items;
+        }
+
+        // Carica elementi completati dal localStorage
+        async function loadCompletedItems() {
+    try {
+        const doc = await db.collection('monitor_state').doc('completed_items').get();
+        if (doc.exists) {
+            const data = doc.data();
+            completedItems = new Set(data.items || []);
+            console.log(`📋 Caricati ${completedItems.size} prodotti completati da Firebase`);
+        } else {
+            console.log('📋 Nessun dato spunte trovato su Firebase');
+        }
+    } catch (error) {
+        console.error('❌ Errore caricamento spunte da Firebase:', error);
+        completedItems = new Set(); // Fallback vuoto
+    }
+}
+            
+        // Carica ordini visualizzati e conosciuti dal localStorage
+        async function loadViewedOrders() {
+        try {
+        // Carica ordini completati da Firebase
+        const completedDoc = await db.collection('monitor_state').doc('completed_orders').get();
+        if (completedDoc.exists) {
+            const data = completedDoc.data();
+            completedOrders = new Set(data.orders || []);
+            console.log(`📋 Caricati ${completedOrders.size} ordini completati da Firebase`);
+        } else {
+            completedOrders = new Set();
+        }
+        
+        // Per ora manteniamo viewedOrders e knownOrderIds in localStorage
+        // (li convertiremo dopo se necessario)
+        const savedViewed = localStorage.getItem('viewedOrders');
+        if (savedViewed) {
+            const items = JSON.parse(savedViewed);
+            viewedOrders = new Set(items);
+        }
+        
+        const savedKnown = localStorage.getItem('knownOrderIds');
+        if (savedKnown) {
+            const items = JSON.parse(savedKnown);
+            knownOrderIds = new Set(items);
+        }
+        
+    } catch (e) {
+        console.warn('Errore nel caricamento degli ordini:', e);
+        viewedOrders = new Set();
+        knownOrderIds = new Set();
+        completedOrders = new Set();
+    }
+}
+
+        function showListView() {
+            currentView = 'list';
+            listView.style.display = 'block';
+            detailsView.style.display = 'none';
+            backButton.style.display = 'none';
+            filters.style.display = 'flex';
+            breadcrumb.textContent = 'Lista Ordini';
+            showingTotals = false;
+            displayOrders(); // Aggiorna la vista
+        }
+
+        function showDetailsView() {
+            currentView = 'details';
+            listView.style.display = 'none';
+            detailsView.style.display = 'block';
+            backButton.style.display = 'flex';
+            filters.style.display = 'none';
+            breadcrumb.textContent = 'Dettagli Ordine';
+        }
+
+        function showLoading() {
+            document.getElementById('orders-content').innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <div>Caricamento ordini in corso...</div>
+                </div>
+            `;
+        }
+
+        function showFoodLoading() {
+            document.getElementById('food-content').innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <div>Caricamento prodotti in corso...</div>
+                </div>
+            `;
+        }
+
+        function showNoOrders() {
+            document.getElementById('orders-content').innerHTML = `
+                <div class="no-orders">
+                    <div class="icon">📋</div>
+                    <div>Nessun ordine trovato</div>
+                    <div style="font-size: 0.9em; margin-top: 10px; opacity: 0.7;">
+                        Prova a modificare i filtri o aggiungere nuovi ordini
+                    </div>
+                </div>
+            `;
+        }
+
+        function showNoFood() {
+            document.getElementById('food-content').innerHTML = `
+                <div class="no-food">
+                    <div class="icon">🍽️</div>
+                    <div>Nessun prodotto trovato</div>
+                    <div style="font-size: 0.9em; margin-top: 10px; opacity: 0.7;">
+                        Questo ordine non contiene prodotti alimentari
+                    </div>
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            document.getElementById('orders-content').innerHTML = `
+                <div class="error">
+                    <strong>❌ Errore di Connessione</strong><br>
+                    ${message}<br><br>
+                    <small>Verificare che il server sia attivo su ${SERVER_URL}</small>
+                </div>
+            `;
+        }
+
+        function showFoodError(message) {
+            document.getElementById('food-content').innerHTML = `
+                <div class="error">
+                    <strong>❌ Errore</strong><br>
+                    ${message}
+                </div>
+            `;
+        }
+
+        function updateStatus(data) {
+            orderCount.textContent = data.totale_ordini || allOrders.length;
+            
+            // Conta date uniche
+            const uniqueDates = [...new Set(allOrders.map(o => o.data_evento).filter(d => d))];
+            dateCount.textContent = uniqueDates.length;
+            
+            if (data.last_update) {
+                const updateTime = new Date(data.last_update);
+                lastUpdate.textContent = updateTime.toLocaleTimeString('it-IT');
+            }
+        }
+
+        function setConnectionStatus(connected, message) {
+            isConnected = connected;
+            connectionStatus.textContent = message;
+            
+            const statusDot = document.querySelector('.status-dot');
+            if (connected) {
+                statusDot.style.background = '#2ecc71';
+                connectionStatus.parentElement.style.borderColor = '#2ecc71';
+                connectionStatus.parentElement.style.background = 'rgba(46, 204, 113, 0.1)';
+            } else {
+                statusDot.style.background = '#e74c3c';
+                connectionStatus.parentElement.style.borderColor = '#e74c3c';
+                connectionStatus.parentElement.style.background = 'rgba(231, 76, 60, 0.1)';
+            }
+        }
+
+        function startAutoUpdate() {
+            updateTimer = setInterval(() => {
+                console.log('🔄 Aggiornamento automatico...');
+                
+                // 🛡️ NUOVO: Protezione contro sovrapposizioni su Mac
+                const now = Date.now();
+                if (isLoadingOrders || (now - lastLoadTime < 2000)) {
+                    console.log('🚫 Auto-update saltato (chiamata già in corso o troppo recente)');
+                    return;
+                }
+                
+                // NON aggiornare se siamo in modalità selezione (ma PERMETTI se mostrando totali)
+                if (selectionMode) {
+                    console.log('⏸️ Auto-update sospeso (modalità selezione attiva)');
+                    return;
+                }
+        
+                // Se siamo in modalità totali, aggiorna SOLO allOrders senza cambiare vista
+                if (showingTotals) {
+                    console.log('🔄 Aggiornamento dati in background (modalità totali)');
+                    loadOrders(); // Questo aggiornerà allOrders e triggererà checkTotalsModifications
+                    return;
+                }
+                
+                // 🔥 NUOVO: Imposta il flag per indicare che è un aggiornamento automatico
+                isAutoUpdating = true;
+                
+                // Salva lo stato corrente dei filtri
+                const savedFilters = {
+                    date: document.getElementById('filter-date').value,
+                    sort: document.getElementById('sort-orders').value
+                };
+                
+                if (currentView === 'list') {
+                    loadOrders().then(() => {
+                        console.log('✅ allOrders aggiornato durante auto-update');
+                        // Ripristina i filtri dopo il caricamento
+                        document.getElementById('filter-date').value = savedFilters.date;
+                        document.getElementById('sort-orders').value = savedFilters.sort;
+                        applyFilters();
+                    }).catch(error => {
+                        console.error('❌ Errore durante auto-update:', error);
+                    });
+                } else if (currentView === 'details' && currentOrderId) {
+                    // Ricarica solo i dettagli dell'ordine corrente
+                    showOrderDetails(currentOrderId);
+                }
+            }, UPDATE_INTERVAL);
+        }
+        
+        
+
+        function stopAutoUpdate() {
+            if (updateTimer) {
+                clearInterval(updateTimer);
+            }
+        }
+
+        // Utility functions
+        function formatDate(dateStr) {
+            if (!dateStr) return 'Data non specificata';
+            
+            try {
+                // Converte "DD/MM/YYYY" in oggetto Date
+                const parts = dateStr.split('/');
+                const date = new Date(parts[2], parts[1] - 1, parts[0]);
+                
+                const options = { 
+                    weekday: 'short', 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric' 
+                };
+                return date.toLocaleDateString('it-IT', options);
+            } catch (e) {
+                return dateStr;
+            }
+        }
+
+        // Gestione errori di rete
+        window.addEventListener('online', () => {
+            console.log('🌐 Connessione ripristinata');
+            loadOrders();
+        });
+
+        window.addEventListener('offline', () => {
+            console.log('📡 Connessione persa');
+            setConnectionStatus(false, 'Offline');
+        });
+
+        // Cleanup quando la pagina viene chiusa
+        window.addEventListener('beforeunload', () => {
+            stopAutoUpdate();
+            cleanupFirebaseListener(); 
+
+        });
+
+        // Gestione tasti rapidi
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && currentView === 'details') {
+                showListView();
+            }
+            if (e.key === 'F5') {
+                e.preventDefault();
+                if (currentView === 'list') {
+                    loadOrders();
+                } else if (currentOrderId) {
+                    showOrderDetails(currentOrderId);
+                }
+            }
+        });
+        document.addEventListener('click', function(event) {
+            if (event.target.closest('.food-item')) {
+                console.log('🖱️ CLICK RILEVATO su food-item');
+                console.log('🖱️ TIMESTAMP:', performance.now());
+            }
+        });
+    </script>
+</body>
+</html>

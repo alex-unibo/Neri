@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile:*)",
+      "Bash(python3:*)",
+      "Bash(python:*)",
+      "Bash(dir /b /s __pycache__)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(pip show:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
