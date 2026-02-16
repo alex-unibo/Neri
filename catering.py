@@ -6048,14 +6048,40 @@ class CateringApp(QMainWindow):
         os.makedirs(cartella_cucina, exist_ok=True)
         
         filename = os.path.join(cartella_cucina, f"Riepilogo_Cucina_{data_file}.docx")
-        doc.save(filename)
         
-        # Mostra messaggio di successo
-        QMessageBox.information(self, "Riepilogo Creato", 
-                            f"Riepilogo cucina salvato con successo!\n\n"
-                            f"Percorso: {filename}\n"
-                            f"Ordini elaborati: {len(ordini_giorno)}\n"
-                            f"Data: {data_target}")
+        # GESTIONE SALVATAGGIO SICURA (Anti-Crash)
+        try:
+            doc.save(filename)
+            
+            # Mostra messaggio di successo solo se il salvataggio va a buon fine
+            QMessageBox.information(
+                self, 
+                "Riepilogo Creato", 
+                f"Riepilogo cucina salvato con successo!\n\n"
+                f"Percorso: {filename}\n"
+                f"Ordini elaborati: {len(ordini_giorno)}\n"
+                f"Data: {data_target}"
+            )
+            
+        except PermissionError:
+            # Cattura l'errore se il file Word è già aperto
+            QMessageBox.warning(
+                self, 
+                "⚠️ File Aperto", 
+                f"Impossibile aggiornare il Riepilogo Cucina.\n\n"
+                f"Il file è attualmente aperto in Microsoft Word:\n{filename}\n\n"
+                f"Per favore, chiudi il file Word e riprova a generare il riepilogo."
+            )
+            return
+            
+        except Exception as e:
+            # Cattura qualsiasi altro errore imprevisto
+            QMessageBox.critical(
+                self, 
+                "❌ Errore di Salvataggio", 
+                f"Si è verificato un errore imprevisto durante il salvataggio del riepilogo:\n\n{str(e)}"
+            )
+            return
     
 
     # PROBLEMA: Il riepilogo legge solo il primo servizio e ignora il secondo
