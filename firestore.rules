@@ -1,0 +1,21 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Permetti accesso completo alla collezione ordini_singoli
+    match /ordini_singoli/{orderId} {
+      allow read, write: if true;
+    }
+
+    // Permetti accesso completo alla collezione monitor_state
+    match /monitor_state/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Regola di default: nega tutto il resto
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -868,9 +868,6 @@
             <div class="status-item">
                 <span>📅 <span id="date-count">0</span> date attive</span>
             </div>
-            <div class="status-item">
-                <span>🕒 <span id="last-update">--:--</span></span>
-            </div>
         </div>
     </div>
 
@@ -902,8 +899,8 @@
             <div class="filter-group">
                 <span class="filter-label">🔤 Ordina:</span>
                 <select class="filter-select" id="sort-orders">
+                    <option value="date-desc" selected>Data (decrescente)</option>
                     <option value="date-asc">Data (crescente)</option>
-                    <option value="date-desc">Data (decrescente)</option>
                     <option value="name-asc">Nome (A-Z)</option>
                     <option value="name-desc">Nome (Z-A)</option>
                     
@@ -927,9 +924,6 @@
                 <button class="action-btn secondary" id="show-totals-btn">
                     📊 Mostra Totali
                 </button>
-                <button class="action-btn third" id="delete-orders-btn" onclick="deleteSelectedOrders()">
-    🗑️ Cancella Ordini
-</button>
                 <button class="action-btn secondary" id="clear-selection-btn">
                     🔄 Pulisci Selezione
                 </button>
@@ -962,16 +956,8 @@
                         <div class="info-value" id="details-date">--/--/----</div>
                     </div>
                     <div class="info-item">
-                        <div class="info-label">ID Ordine</div>
-                        <div class="info-value" id="details-id">--------</div>
-                    </div>
-                    <div class="info-item">
                         <div class="info-label">Prodotti</div>
                         <div class="info-value" id="details-products-count">0</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Ultimo Aggiornamento</div>
-                        <div class="info-value" id="details-last-update">--:--</div>
                     </div>
                 </div>
             </div>
@@ -980,22 +966,11 @@
                 
                 <!-- Qui verranno inseriti i prodotti -->
             </div>
-            <div id="intolleranze-section" style="display: none;">
-                <div class="section-divider">
-                    <div class="divider-line"></div>
-                    <div class="divider-text">🌱 INTOLLERANZE 🌱</div>
-                    <div class="divider-line"></div>
-                </div>
-                
-                <div id="intolleranze-content" class="food-grid">
-                    <!-- Le intolleranze verranno caricate qui via JavaScript -->
-                </div>
-            </div>
         </div>
     </div>
 
     <div class="footer">
-        <p id="footer-text">🔄 Aggiornamento automatico ogni 15 secondi • Server: <span id="server-url">localhost:5000</span></p>
+        <p id="footer-text">🔄 Aggiornamento automatico ogni 30 secondi • Server: <span id="server-url">localhost:5000</span></p>
     </div>
 
     <script>
@@ -1018,7 +993,7 @@ let selectedOrdersBeforeTotals = new Set(); // 🔥 AGGIUNGI QUESTA RIGA
 // Modalità: Firebase o Server locale
 const USE_FIREBASE = true; // Cambia a false per usare server locale
 const SERVER_URL = null;
-        const UPDATE_INTERVAL = 15000; // 15 secondi
+        const UPDATE_INTERVAL = 60000; // 30 secondi
 
         let isLoadingOrders = false; // Flag per prevenire chiamate multiple
         let lastLoadTime = 0; // Timestamp dell'ultimo caricamento
@@ -1178,12 +1153,16 @@ function getTodayDateString() {
     } else {
         serverUrl.textContent = SERVER_URL ? SERVER_URL.replace('http://', '') : 'Server non configurato';
         // Footer rimane uguale per server locale
-        document.querySelector('.footer p').innerHTML = `🔄 Aggiornamento automatico ogni 15 secondi • Server: <span id="server-url">${SERVER_URL.replace('http://', '')}</span>`;
+        document.querySelector('.footer p').innerHTML = `🔄 Aggiornamento automatico ogni 30 secondi • Server: <span id="server-url">${SERVER_URL.replace('http://', '')}</span>`;
     }
     
     await loadCompletedItems();
     await loadViewedOrders();
     await loadModifiedOrdersNotViewed();
+    
+    // Imposta ordinamento default: dal più recente al più lontano
+    document.getElementById('sort-orders').value = 'date-desc';
+    
     setupEventListeners();
     loadOrders();
     startAutoUpdate();
@@ -1415,14 +1394,17 @@ function cleanupFirebaseListener() {
             // Aggiorna filtro date
             const dateFilter = document.getElementById('filter-date');
             const currentSelection = dateFilter.value; // Salva selezione corrente
-            
-            const dates = [...new Set(allOrders.map(o => o.data_evento).filter(d => d))].sort();
-            
+
+            // Filtra solo ordini non scaduti prima di estrarre le date
+            const validOrders = allOrders.filter(order => !isOrderExpired(order));
+
+            const dates = [...new Set(validOrders.map(o => o.data_evento).filter(d => d))].sort();
+
             // Pulisci opzioni esistenti (tranne la prima)
             while (dateFilter.children.length > 1) {
                 dateFilter.removeChild(dateFilter.lastChild);
             }
-            
+
             // Aggiungi nuove date
             dates.forEach(date => {
                 const option = document.createElement('option');
@@ -1430,7 +1412,7 @@ function cleanupFirebaseListener() {
                 option.textContent = formatDate(date);
                 dateFilter.appendChild(option);
             });
-            
+
             // Ripristina la selezione precedente
             if (currentSelection && dates.includes(currentSelection)) {
                 dateFilter.value = currentSelection;
@@ -1441,16 +1423,22 @@ function cleanupFirebaseListener() {
         function applyFilters() {
     const dateFilter = document.getElementById('filter-date').value;
     const sortFilter = document.getElementById('sort-orders').value;
-    
+    const now = new Date();
+
     // 🔥 CORREZIONE: Logica di filtro combinato CORRETTA
     filteredOrders = allOrders.filter(order => {
+        // ===== ZERO: Escludi SEMPRE ordini scaduti (>24h dalla data evento) =====
+        if (isOrderExpired(order)) {
+            return false; // Escludi ordini scaduti
+        }
+
         // ===== PRIMO: Applica filtro DATA (se presente) =====
-        
+
         // Filtro data specifica
         if (dateFilter && order.data_evento !== dateFilter) {
             return false; // Escludi ordini di altre date
         }
-        
+
         // Filtro "Solo Oggi" (solo se NON c'è una data specifica)
         if (!dateFilter && todayFilterActive) {
             const today = getTodayDateString();
@@ -1458,16 +1446,16 @@ function cleanupFirebaseListener() {
                 return false; // Escludi ordini di altre date
             }
         }
-        
+
         // ===== SECONDO: Applica filtro STATO (se presente) =====
-        
+
         // Filtro "Da Fare" (si applica DOPO il filtro data)
         if (todoFilterActive) {
             if (completedOrders.has(order.id)) {
                 return false; // Escludi ordini completati
             }
         }
-        
+
         // Se arriva qui, l'ordine passa tutti i filtri attivi
         return true;
     });
@@ -1664,6 +1652,13 @@ function updateFilterCounters() {
         
         currentOrderId = orderId;
         
+        // Salva uno snapshot dell'ordine per futuri controlli di modifiche
+        const snapshots = JSON.parse(localStorage.getItem('orderSnapshots') || '{}');
+        if (!snapshots[orderId]) {
+            await saveOrderSnapshot(orderId);
+            console.log(`📸 Primo snapshot creato per ordine ${orderId}`);
+        }
+        
         // Trova l'ordine nella lista
         const order = allOrders.find(o => o.id === orderId);
         if (!order) {
@@ -1676,9 +1671,7 @@ function updateFilterCounters() {
         // Aggiorna header dettagli
         document.getElementById('details-customer-name').textContent = order.nome_cliente;
         document.getElementById('details-date').textContent = order.data_evento ? formatDate(order.data_evento) : 'Non specificata';
-        document.getElementById('details-id').textContent = order.id;
         document.getElementById('details-products-count').textContent = order.prodotti_count;
-        document.getElementById('details-last-update').textContent = new Date(order.ultimo_aggiornamento).toLocaleTimeString('it-IT');
         
         // Carica dettagli cibo
         showFoodLoading();
@@ -1747,9 +1740,11 @@ function updateFilterCounters() {
     });
     
     // 🔥 NUOVO: Controlla modifiche negli ordini esistenti
+    const snapshots = JSON.parse(localStorage.getItem('orderSnapshots') || '{}');
+    
     orders.forEach(async (order) => {
-        if (completedOrders.has(order.id)) {
-            // Solo per ordini già completati, controlla se ci sono state modifiche
+        // Controlla modifiche per tutti gli ordini che hanno uno snapshot salvato
+        if (snapshots[order.id]) {
             const hasModifications = await removeCompletedItemsForModifiedOrder(order.id);
             if (hasModifications) {
                 console.log(`🔄 Modifiche rilevate e gestite per ordine ${order.id}`);
@@ -1775,143 +1770,22 @@ function updateFilterCounters() {
 
 function displayFood(cibo) {
     const foodContent = document.getElementById('food-content');
-    const intolleranzeSection = document.getElementById('intolleranze-section');
     
     if (!cibo || Object.keys(cibo).length === 0) {
         showNoFood();
-        if (intolleranzeSection) {
-            intolleranzeSection.style.display = 'none';
-        }
         return;
     }
 
-    // 🔥 LISTA COMPLETA VOCI PER INTOLLERANTI (dal catering_data.json)
-    const vociIntolleranti = [
-        // Vegano
-        "Pizzette per vegani no mozzarella",
-          "Mini sandwich per vegani con verdure", 
-          "Spiedini pomodoro e olive",
-          "Ciotoline chinoa lime menta e melanzane + forch.bio",
-          "Bicch cous cous con verdure + cucch.bio",
-          "Bicch insalata di riso + verdure + forch.bio",
-          "Crostini con hummus di ceci e zucchine al forno",
-          "Bicchierino di pinzimonio",
-          "Bicch riso venere con mais pomodorini secchi e piselli+forch.bio",
-          "Crostini con verdure al forno",
-          "Bicch insalata di farro con edamame cavolo viola e pomodori secchi+ forch.bio",
-          "Bicch orzo con verdure + forch.bio",
-          "Pasta corta vegana fai tu",
-          "Pasta al forno vegana fai tu",
-          "Secondo vegano fai tu",
-          "Contorno vegano fai tu",
-          "Dolce vegano",
-          "Spiedino di frutta corto",
-          "Macedonia di frutta+cucch.bio",
-        
-        // No Lattosio
-        "Pizzette no mozzarella",
-          "Bicch insalata d'orzo con pesto fagiolini e mandorle+forch.bio",
-          "Bicch insalata di farro con edamame cavolo viola e pomodori secchi+ forch.bio",
-          "Mini sandwich farciti mix",
-          "Spiedini pomodoro e olive", 
-          "Bocconcini ananas e speck",
-          "Piroghe pollo nizzarda+forch.bio",
-          "Bicch. quinoa lime menta e melanzana+ forch.bio",
-          "Bicch. insalata di farro con verdure +forch.bio",
-          "Pasta corta no lattosio fai tu",
-          "Pasta al forno no lattosio fai tu",
-          "Secondo no lattosio fai tu",
-          "Contorno no lattosio fai tu",
-          "Dolce No lattosio",
-          "Spiedino frutta corto",
-          "Macedonia di frutta+cucch.bio",
-        
-        // Celiaci
-        "Pizzette senza glutine",
-          "Mini sandwich senza glutine farciti mix",
-          "Spiedini pomodoro e mozzarella",
-          "Involtino bresaola stracchino e rucola",
-          "Spiedini pomodori e olive",
-          "Indivia belga mousse di caprino e noci",
-          "Bocconcini ananas e speck",
-          "Piroghe pollo nizzarda+forch.bio",
-          "Rombetti di frittata",
-          "Rotolini di frittata cotto maionese e lattuga",
-          "Bicch.quinoa lime menta e melanzane+forch.bio",
-          "Pasta corta no glutine fai tu",
-          "Pasta al forno no glutine fai tu",
-          "Secondo no glutine fai tu",
-          "Contorno no glutine fai tu",
-          "Dolce senza glutine",
-          "Spiedino di frutta corto",
-          "Macedonia di frutta+cucch.bio",
-        
-        // No Uova
-        "Spiedini pomodoro e olive",
-          "Involtino bresaola stracchino e rucola",
-          "Bocconcini ananas e speck",
-          "Piroghe pollo nizzarda+forch.bio",
-          "Bicch. quinoa lime menta e melanzane",
-          "Bicch insalata di farro con verdure+ forch.bio",
-          "Pasta corta no uovo fai tu",
-          "Pasta al forno no uovo fai tu",
-          "Secondo no uovo fai tu",
-          "Contorno no uovo fai tu",
-          "Dolce no uova",
-          "Spiedino di frutta corto",
-          "Macedonia di frutta+cucch.bio"
-    ];
-    
-    // 🔥 SEPARA CIBO NORMALE DA INTOLLERANTI
-    const ciboNormale = {};
-    const ciboIntolleranti = {};
-    
-    Object.entries(cibo).forEach(([key, item]) => {
-        const nomeItem = item.nome;
-        
-        // Controlla se è una voce per intolleranti (confronto preciso + parole chiave)
-        const isIntollerante = vociIntolleranti.some(voceIntol => {
-            // Match esatto
-            if (nomeItem.toLowerCase() === voceIntol.toLowerCase()) {
-                return true;
-            }
-            // Match parziale (una contiene l'altra)
-            if (nomeItem.toLowerCase().includes(voceIntol.toLowerCase()) ||
-                voceIntol.toLowerCase().includes(nomeItem.toLowerCase())) {
-                return true;
-            }
-            return false;
-        });
-        
-        // Controllo aggiuntivo per parole chiave
-        const paroleDaIntolleranti = [
-            'vegani', 'vegano', 'no mozzarella', 'no lattosio', 'no glutine', 
-            'senza glutine', 'no uovo', 'senza uova', 'celiaci', 'celiaco'
-        ];
-        
-        const hasKeywords = paroleDaIntolleranti.some(parola => 
-            nomeItem.toLowerCase().includes(parola)
-        );
-        
-        if (isIntollerante || hasKeywords) {
-            ciboIntolleranti[key] = item;
-        } else {
-            ciboNormale[key] = item;
-        }
-    });
-    
-    console.log(`🍽️ Cibo normale: ${Object.keys(ciboNormale).length} voci`);
-    console.log(`🌱 Cibo intolleranti: ${Object.keys(ciboIntolleranti).length} voci`);
-
-    // 🔥 MOSTRA CIBO NORMALE (sopra)
+    // Mostra tutti i prodotti insieme senza distinzione
     let html = '<div class="food-grid">';
     
-    Object.values(ciboNormale).forEach((item, index) => {
+    Object.values(cibo).forEach((item, index) => {
         const itemId = `${currentOrderId}-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`;
         const isCompleted = completedItems.has(itemId);
         
         html += `
-<div class="food-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleFoodItem('${itemId}', event)">                <input type="checkbox" class="food-checkbox" ${isCompleted ? 'checked' : ''}
+<div class="food-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleFoodItem('${itemId}', event)">
+                <input type="checkbox" class="food-checkbox" ${isCompleted ? 'checked' : ''}
                     onchange="toggleFoodItem('${itemId}', event)" onclick="event.stopPropagation()">
                 <div class="food-name">${item.nome}</div>
                 <div class="food-quantity">${item.quantita}</div>
@@ -1922,55 +1796,7 @@ function displayFood(cibo) {
     html += '</div>';
     foodContent.innerHTML = html;
     
-    // 🔥 MOSTRA SEZIONE INTOLLERANZE SE CI SONO VOCI
-    if (Object.keys(ciboIntolleranti).length > 0) {
-        console.log('✅ Mostrando sezione intolleranze con linea rossa!');
-        
-        // Verifica che l'elemento intolleranze-section esista
-        if (!intolleranzeSection) {
-            console.error('❌ Elemento intolleranze-section non trovato nel DOM!');
-            return;
-        }
-        
-        // Mostra la sezione
-        intolleranzeSection.style.display = 'block';
-        intolleranzeSection.style.visibility = 'visible';
-        intolleranzeSection.style.opacity = '1';
-        
-        // Genera HTML per le voci intolleranti
-        let intolleranzeHtml = '<div class="food-grid">';
-        
-        Object.values(ciboIntolleranti).forEach((item, index) => {
-            const itemId = `${currentOrderId}-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`;
-            const isCompleted = completedItems.has(itemId);
-            
-            intolleranzeHtml += `
-<div class="food-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleFoodItem('${itemId}', event)">                    <input type="checkbox" class="food-checkbox" ${isCompleted ? 'checked' : ''}
-                            onchange="toggleFoodItem('${itemId}', event)" onclick="event.stopPropagation()">
-                    <div class="food-name">${item.nome}</div>
-                    <div class="food-quantity">${item.quantita}</div>
-                </div>
-            `;
-        });
-        
-        intolleranzeHtml += '</div>';
-        
-        // Inserisci nell'elemento intolleranze-content
-        const intolleranzeContent = document.getElementById('intolleranze-content');
-        if (intolleranzeContent) {
-            intolleranzeContent.innerHTML = intolleranzeHtml;
-            console.log(`🌱 ${Object.keys(ciboIntolleranti).length} voci per intolleranti mostrate sotto la linea`);
-        } else {
-            console.error('❌ Elemento intolleranze-content non trovato!');
-        }
-        
-    } else {
-        // Nascondi sezione se non ci sono intolleranti
-        if (intolleranzeSection) {
-            intolleranzeSection.style.display = 'none';
-        }
-        console.log('ℹ️ Nessuna voce per intolleranti in questo ordine');
-    }
+    console.log(`🍽️ Mostrati ${Object.keys(cibo).length} prodotti totali`);
 }
 
         // 🔥 TROVA questa funzione nel tuo monitor.html e SOSTITUISCILA completamente:
@@ -2563,9 +2389,21 @@ async function showOrderChanges(orderId) {
         }
     });
     
-    message += "\n💡 Spunta e rispunta l'ordine per confermare di aver visto le modifiche.";
+    message += "\n✅ Modifiche visualizzate correttamente.";
     
     alert(message);
+    
+    // Dopo aver mostrato le modifiche, aggiorna lo snapshot e rimuovi il badge
+    await saveOrderSnapshot(orderId);
+    console.log(`📸 Snapshot aggiornato per ordine ${orderId} dopo aver visto le modifiche`);
+    
+    // Rimuovi il badge modificato
+    markModifiedOrderAsViewed(orderId);
+    
+    // Aggiorna la visualizzazione se siamo nella lista
+    if (currentView === 'list') {
+        displayOrders();
+    }
 }
 async function toggleTotalItem(itemId, event) {
     if (event) {
@@ -2585,7 +2423,7 @@ async function toggleTotalItem(itemId, event) {
     saveCompletedItemsToFirebase();
     
     // Aggiorna solo l'elemento specifico
-    const totalItem = document.querySelector(`[onclick*="${itemId}"]`);
+    const totalItem = document.getElementById(itemId);
     if (totalItem) {
         const checkbox = totalItem.querySelector('.total-item-checkbox');
         const isCompleted = completedTotalItems.has(itemId);
@@ -2634,11 +2472,22 @@ async function checkAndCompleteSelectedOrders() {
                 completedOrders.add(orderId);
                 ordiniCompletatiOra++;
                 console.log(`✅ Ordine ${orderId} marcato come completato`);
+                
+                // Spunta anche tutti i singoli prodotti dell'ordine
+                const order = allOrders.find(o => o.id === orderId);
+                if (order && order.cibo) {
+                    Object.values(order.cibo).forEach(item => {
+                        const itemId = `${orderId}-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                        completedItems.add(itemId);
+                        console.log(`✅ Spuntato singolo prodotto: ${itemId}`);
+                    });
+                }
             }
         }
         
         // Salva su Firebase
         await saveCompletedOrdersToFirebase();
+        await saveCompletedItemsToFirebase(); // Salva anche i singoli prodotti
         
         // Salva snapshot degli ordini completati
         const completionTimes = {};
@@ -2672,11 +2521,22 @@ async function checkAndCompleteSelectedOrders() {
                 completedOrders.delete(orderId);
                 ordiniDecompletatiOra++;
                 console.log(`🔄 Ordine ${orderId} rimosso dai completati`);
+                
+                // Rimuovi anche le spunte dai singoli prodotti dell'ordine
+                const order = allOrders.find(o => o.id === orderId);
+                if (order && order.cibo) {
+                    Object.values(order.cibo).forEach(item => {
+                        const itemId = `${orderId}-${item.nome.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                        completedItems.delete(itemId);
+                        console.log(`🔄 Rimossa spunta singolo prodotto: ${itemId}`);
+                    });
+                }
             }
         }
         
         if (ordiniDecompletatiOra > 0) {
             await saveCompletedOrdersToFirebase();
+            await saveCompletedItemsToFirebase(); // Salva anche i singoli prodotti
         }
     }
 }
@@ -2706,7 +2566,7 @@ function showCompletionNotification(count) {
         <div style="font-size: 2em; margin-bottom: 10px;">🎉</div>
         <div>TUTTI I TOTALI COMPLETATI!</div>
         <div style="font-size: 0.9em; margin-top: 8px; opacity: 0.9;">
-            ${count} ordine${count > 1 ? 'i' : ''} marcato${count > 1 ? 'i' : ''} come completato${count > 1 ? 'i' : ''}
+            ${count} ordin${count > 1 ? 'i' : ''} marcat${count > 1 ? 'i' : ''} come completat${count > 1 ? 'i' : ''}
         </div>
     `;
     
@@ -3087,11 +2947,11 @@ console.log(`📝 Salvati ${selectedOrdersBeforeTotals.size} ordini per controll
     }
 }
 
-// 🔥 NUOVA FUNZIONE: Mostra totali con intolleranze
+// Funzione per mostrare i totali aggregati
 function displayTotalsWithIntolleranze(totals, intolleranze, orderCount) {
     const ordersContent = document.getElementById('orders-content');
     
-    if (Object.keys(totals).length === 0 && Object.keys(intolleranze).length === 0) {
+    if (Object.keys(totals).length === 0) {
         ordersContent.innerHTML = `
             <div class="totals-view">
                 <div class="totals-header">
@@ -3116,7 +2976,7 @@ function displayTotalsWithIntolleranze(totals, intolleranze, orderCount) {
             <div class="totals-grid">
     `;
     
-    // Mostra cibo normale
+    // Mostra tutti i prodotti insieme senza distinzione
     const sortedItems = Object.entries(totals).sort(([a], [b]) => a.localeCompare(b));
     
     sortedItems.forEach(([name, data]) => {
@@ -3124,7 +2984,7 @@ function displayTotalsWithIntolleranze(totals, intolleranze, orderCount) {
             data.totalQuantity.toString() : 
             data.totalQuantity.toFixed(1);
         
-        const itemId = `total-${name.replace(/\s+/g, '-').toLowerCase()}`;
+        const itemId = `total-${name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
         const isCompleted = completedTotalItems.has(itemId);
 
         html += `
@@ -3138,291 +2998,90 @@ function displayTotalsWithIntolleranze(totals, intolleranze, orderCount) {
         `;
     });
     
-    html += '</div>'; // Chiude totals-grid
-    
-    // 🔥 NUOVO: Aggiungi sezione intolleranze se presenti
-    if (Object.keys(intolleranze).length > 0) {
-        html += `
-            <div class="section-divider">
-                <div class="divider-line"></div>
-                <div class="divider-text">INTOLLERANZE</div>
-                <div class="divider-line"></div>
-            </div>
-            <div class="intolleranze-grid">
-        `;
-        
-        for (const [tipo, dati] of Object.entries(intolleranze)) {
-            html += `
-                <div class="intolleranza-card">
-                    <div class="intolleranza-header">
-                        <div class="intolleranza-title">${tipo}</div>
-                        <div class="intolleranza-persone">${dati.persone} persone totali</div>
-                    </div>
-                    <div class="intolleranza-voci">
-            `;
-            
-            for (const voce of Object.values(dati.voci)) {
-                const itemId = `intolleranza-${tipo}-${voce.nome.replace(/\s+/g, '-').toLowerCase()}`;
-                const isCompleted = completedTotalItems.has(itemId);
-                
-                html += `
-                    <div class="intolleranza-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleTotalItem('${itemId}', event)">
-                        <input type="checkbox" class="total-item-checkbox" ${isCompleted ? 'checked' : ''}>
-                        <span class="intolleranza-nome">${voce.nome}</span>
-                        <span class="intolleranza-quantita">${voce.quantita} pz</span>
-                    </div>
-                `;
-            }
-            
-            html += `
-                    </div>
-                </div>
-            `;
-        }
-        
-        html += '</div>'; // Chiude intolleranze-grid
-    }
-    
-    html += '</div>'; // Chiude totals-view
+    html += '</div></div>'; // Chiude totals-grid e totals-view
     
     ordersContent.innerHTML = html;
     
-    console.log(`✅ Totali mostrati: ${Object.keys(totals).length} prodotti normali + ${Object.keys(intolleranze).length} tipi intolleranze`);
+    console.log(`✅ Totali mostrati: ${Object.keys(totals).length} prodotti totali`);
 }
 // Funzione per controllare modifiche nei totali
-// 🔥 MODIFICA LA FUNZIONE displayTotalsWithIntolleranze per usare la lista
-function displayTotalsWithIntolleranze(totals, intolleranze, orderCount) {
-    const ordersContent = document.getElementById('orders-content');
-    
-    // 🔥 LISTA COMPLETA VOCI PER INTOLLERANTI (stessa del monitor singolo)
-    const vociIntolleranti = [
-        "Pizzette per vegani no mozzarella",
-          "Mini sandwich per vegani con verdure", 
-          "Spiedini pomodoro e olive",
-          "Ciotoline chinoa lime menta e melanzane + forch.bio",
-          "Bicch cous cous con verdure + cucch.bio",
-          "Bicch insalata di riso + verdure + forch.bio",
-          "Crostini con hummus di ceci e zucchine al forno",
-          "Bicchierino di pinzimonio",
-          "Bicch riso venere con mais pomodorini secchi e piselli+forch.bio",
-          "Crostini con verdure al forno",
-          "Bicch insalata di farro con edamame cavolo viola e pomodori secchi+ forch.bio",
-          "Bicch orzo con verdure + forch.bio",
-          "Pasta corta vegana fai tu",
-          "Pasta al forno vegana fai tu",
-          "Secondo vegano fai tu",
-          "Contorno vegano fai tu",
-          "Dolce vegano",
-          "Spiedino di frutta corto",
-          "Macedonia di frutta+cucch.bio",
-        
-        // No Lattosio
-        "Pizzette no mozzarella",
-          "Bicch insalata d'orzo con pesto fagiolini e mandorle+forch.bio",
-          "Bicch insalata di farro con edamame cavolo viola e pomodori secchi+ forch.bio",
-          "Mini sandwich farciti mix",
-          "Spiedini pomodoro e olive", 
-          "Bocconcini ananas e speck",
-          "Piroghe pollo nizzarda+forch.bio",
-          "Bicch. quinoa lime menta e melanzana+ forch.bio",
-          "Bicch. insalata di farro con verdure +forch.bio",
-          "Pasta corta no lattosio fai tu",
-          "Pasta al forno no lattosio fai tu",
-          "Secondo no lattosio fai tu",
-          "Contorno no lattosio fai tu",
-          "Dolce No lattosio",
-          "Spiedino frutta corto",
-          "Macedonia di frutta+cucch.bio",
-        
-        // Celiaci
-        "Pizzette senza glutine",
-          "Mini sandwich senza glutine farciti mix",
-          "Spiedini pomodoro e mozzarella",
-          "Involtino bresaola stracchino e rucola",
-          "Spiedini pomodori e olive",
-          "Indivia belga mousse di caprino e noci",
-          "Bocconcini ananas e speck",
-          "Piroghe pollo nizzarda+forch.bio",
-          "Rombetti di frittata",
-          "Rotolini di frittata cotto maionese e lattuga",
-          "Bicch.quinoa lime menta e melanzane+forch.bio",
-          "Pasta corta no glutine fai tu",
-          "Pasta al forno no glutine fai tu",
-          "Secondo no glutine fai tu",
-          "Contorno no glutine fai tu",
-          "Dolce senza glutine",
-          "Spiedino di frutta corto",
-          "Macedonia di frutta+cucch.bio",
-        
-        // No Uova
-        "Spiedini pomodoro e olive",
-          "Involtino bresaola stracchino e rucola",
-          "Bocconcini ananas e speck",
-          "Piroghe pollo nizzarda+forch.bio",
-          "Bicch. quinoa lime menta e melanzane",
-          "Bicch insalata di farro con verdure+ forch.bio",
-          "Pasta corta no uovo fai tu",
-          "Pasta al forno no uovo fai tu",
-          "Secondo no uovo fai tu",
-          "Contorno no uovo fai tu",
-          "Dolce no uova",
-          "Spiedino di frutta corto",
-          "Macedonia di frutta+cucch.bio"
-    ];
-    
-    // 🔥 SEPARA I TOTALI IN CIBO NORMALE E INTOLLERANTI
-    const ciboNormale = {};
-    const ciboIntolleranti = {};
-    
-    console.log(`🔍 Separando ${Object.keys(totals).length} prodotti...`);
-    
-    for (const [name, data] of Object.entries(totals)) {
-        const isIntollerante = vociIntolleranti.some(voceIntol => 
-            voceIntol.toLowerCase() === name.toLowerCase() ||
-            name.toLowerCase().includes(voceIntol.toLowerCase()) ||
-            voceIntol.toLowerCase().includes(name.toLowerCase())
-        );
-        
-        if (isIntollerante) {
-            ciboIntolleranti[name] = data;
-            console.log(`🌱 INTOLLERANTE: ${name}`);
-        } else {
-            ciboNormale[name] = data;
-            console.log(`🍽️ NORMALE: ${name}`);
+
+// Funzione helper per calcolare se un ordine è scaduto
+function isOrderExpired(order) {
+    if (!order.data_evento || !order.ultimo_aggiornamento) return false;
+
+    try {
+        const now = new Date();
+
+        // Estrai la data dell'evento
+        const parts = order.data_evento.split('/');
+        const eventDate = new Date(parts[2], parts[1] - 1, parts[0]);
+
+        // Se la data_evento è più vecchia di 2 giorni fa, l'ordine è sicuramente scaduto
+        const twoDaysAgo = new Date(now.getTime() - (2 * 24 * 60 * 60 * 1000));
+        if (eventDate < twoDaysAgo) {
+            return true; // Ordine vecchio, sicuramente scaduto
         }
-    }
-    
-    console.log(`✅ Separazione completata: ${Object.keys(ciboNormale).length} normali + ${Object.keys(ciboIntolleranti).length} intolleranti`);
-    
-    if (Object.keys(ciboNormale).length === 0 && Object.keys(ciboIntolleranti).length === 0) {
-        ordersContent.innerHTML = `
-            <div class="totals-view">
-                <div class="totals-header">
-                    <h2>📊 Totali Aggregati</h2>
-                    <div class="totals-subtitle">Ordini selezionati: ${orderCount}</div>
-                </div>
-                <div class="no-food">
-                    <div class="icon">🍽️</div>
-                    <div>Nessun prodotto trovato negli ordini selezionati</div>
-                </div>
-            </div>
-        `;
-        return;
-    }
-    
-    let html = `
-        <div class="totals-view">
-            <div class="totals-header">
-                <h2>📊 Totali Aggregati</h2>
-                <div class="totals-subtitle">Ordini selezionati: ${orderCount} • Prodotti normali: ${Object.keys(ciboNormale).length} • Intolleranze: ${Object.keys(ciboIntolleranti).length}</div>
-            </div>
-    `;
-    
-    // 🔥 SEZIONE CIBO NORMALE
-    if (Object.keys(ciboNormale).length > 0) {
-        html += '<div class="totals-grid">';
-        
-        const sortedNormali = Object.entries(ciboNormale).sort(([a], [b]) => a.localeCompare(b));
-        
-        sortedNormali.forEach(([name, data]) => {
-            const displayQuantity = data.totalQuantity % 1 === 0 ? 
-                data.totalQuantity.toString() : 
-                data.totalQuantity.toFixed(1);
-            
-            const itemId = `total-${name.replace(/\s+/g, '-').toLowerCase()}`;
-            const isCompleted = completedTotalItems.has(itemId);
 
-            html += `
-                <div class="total-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleTotalItem('${itemId}', event)">
-                    <input type="checkbox" class="total-item-checkbox" ${isCompleted ? 'checked' : ''}>
-                    <div class="total-item-content">
-                        <div class="total-item-name">${name}</div>
-                        <div class="total-item-quantity">${displayQuantity} ${data.unit}</div>
-                    </div>
-                </div>
-            `;
-        });
-        
-        html += '</div>'; // Chiude totals-grid
-    }
-    
-    // 🔥 SEZIONE INTOLLERANZE
-    if (Object.keys(ciboIntolleranti).length > 0) {
-        html += `
-            <div class="section-divider">
-                <div class="divider-line"></div>
-                <div class="divider-text">INTOLLERANZE</div>
-                <div class="divider-line"></div>
-            </div>
-            <div class="totals-grid">
-        `;
-        
-        const sortedIntolleranti = Object.entries(ciboIntolleranti).sort(([a], [b]) => a.localeCompare(b));
-        
-        sortedIntolleranti.forEach(([name, data]) => {
-            const displayQuantity = data.totalQuantity % 1 === 0 ? 
-                data.totalQuantity.toString() : 
-                data.totalQuantity.toFixed(1);
-            
-            const itemId = `intol-${name.replace(/\s+/g, '-').toLowerCase()}`;
-            const isCompleted = completedTotalItems.has(itemId);
+        // Altrimenti, combina la data dell'evento con l'orario da ultimo_aggiornamento
+        const lastUpdate = new Date(order.ultimo_aggiornamento);
+        const eventDateTime = new Date(
+            eventDate.getFullYear(),
+            eventDate.getMonth(),
+            eventDate.getDate(),
+            lastUpdate.getHours(),
+            lastUpdate.getMinutes(),
+            lastUpdate.getSeconds()
+        );
 
-            html += `
-                <div class="total-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleTotalItem('${itemId}', event)">
-                    <input type="checkbox" class="total-item-checkbox" ${isCompleted ? 'checked' : ''}>
-                    <div class="total-item-content">
-                        <div class="total-item-name">${name}</div>
-                        <div class="total-item-quantity">${displayQuantity} ${data.unit}</div>
-                    </div>
-                </div>
-            `;
-        });
-        
-        html += '</div>'; // Chiude intolleranze-grid
+        // Scadenza = data_evento + ora_creazione + 24h
+        const expiryDate = new Date(eventDateTime.getTime() + (24 * 60 * 60 * 1000));
+
+        return now > expiryDate;
+    } catch (error) {
+        console.warn(`⚠️ Errore calcolo scadenza ordine ${order.id}:`, error);
+        return false;
     }
-    
-    html += '</div>'; // Chiude totals-view
-    
-    ordersContent.innerHTML = html;
-    
-    console.log(`✅ Totali mostrati: ${Object.keys(ciboNormale).length} prodotti normali + ${Object.keys(ciboIntolleranti).length} intolleranze`);
 }
-
-// 🔥 MODIFICA ANCHE showTotalsView() per usare la separazione semplice
 
 // Funzione per eliminare automaticamente ordini vecchi
 async function autoDeleteOldOrders() {
-    console.log('🧹 Controllo ordini da eliminare (>24h)...');
-    
+    console.log('🧹 Controllo ordini da eliminare (>24h dalla data evento)...');
+
     const now = new Date();
     const ordersToDelete = [];
-    
-    // Trova ordini con data evento passata di oltre 24h
+
+    // Trova ordini scaduti
     allOrders.forEach(order => {
-        if (!order.data_evento) return; // Salta ordini senza data
-        
+        if (!order.data_evento || !order.ultimo_aggiornamento) return;
+
         try {
-            // Converte "DD/MM/YYYY" in oggetto Date
-const parts = order.data_evento.split('/');
-const orderDate = new Date(parts[2], parts[1] - 1, parts[0]);
+            if (isOrderExpired(order)) {
+                ordersToDelete.push(order.id);
 
-// Aggiunge 24 ore alla data dell'ordine
-const expiryDate = new Date(orderDate.getTime() + (24 * 60 * 60 * 1000));
+                // 🔍 DEBUG: Mostra info per debug
+                const parts = order.data_evento.split('/');
+                const eventDate = new Date(parts[2], parts[1] - 1, parts[0]);
+                const lastUpdate = new Date(order.ultimo_aggiornamento);
+                const eventDateTime = new Date(
+                    eventDate.getFullYear(),
+                    eventDate.getMonth(),
+                    eventDate.getDate(),
+                    lastUpdate.getHours(),
+                    lastUpdate.getMinutes(),
+                    lastUpdate.getSeconds()
+                );
+                const expiryDate = new Date(eventDateTime.getTime() + (24 * 60 * 60 * 1000));
 
-// 🔍 DEBUG: Mostra date per debug
-console.log(`🔍 Ordine: ${order.nome_cliente}`);
-console.log(`📅 Data evento: ${order.data_evento}`);
-console.log(`📅 Data parsed: ${orderDate}`);
-console.log(`⏰ Scadenza: ${expiryDate}`);
-console.log(`⏰ Ora attuale: ${now}`);
-console.log(`❓ Da eliminare: ${now > expiryDate}`);
-
-if (now > expiryDate) {
-    ordersToDelete.push(order.id);
-    console.log(`🗑️ Ordine da eliminare: ${order.nome_cliente} (${order.data_evento})`);
-}
+                console.log(`🔍 Ordine: ${order.nome_cliente}`);
+                console.log(`📅 Data evento: ${order.data_evento}`);
+                console.log(`⏰ Data+ora evento: ${eventDateTime.toLocaleString('it-IT')}`);
+                console.log(`⏰ Scadenza (24h dopo): ${expiryDate.toLocaleString('it-IT')}`);
+                console.log(`⏰ Ora attuale: ${now.toLocaleString('it-IT')}`);
+                console.log(`🗑️ Ordine da eliminare: ${order.nome_cliente} (scaduto da ${Math.floor((now - expiryDate) / (1000 * 60))} minuti)`);
+            }
         } catch (error) {
-            console.warn(`⚠️ Errore parsing data ordine ${order.id}:`, error);
+            console.warn(`⚠️ Errore parsing ordine ${order.id}:`, error);
         }
     });
     
@@ -3465,14 +3124,14 @@ if (now > expiryDate) {
 }
 
 // Avvia controllo automatico ogni ora
-// Avvia controllo automatico ogni 30 secondi
+// Avvia controllo automatico ogni 60 secondi
 function startAutoCleanup() {
     // Controllo immediato all'avvio
     setTimeout(autoDeleteOldOrders, 5000); // Dopo 5 secondi dall'avvio
-    
-    // Poi ogni 30 secondi (stesso intervallo dell'aggiornamento ordini)
-    setInterval(autoDeleteOldOrders, 30 * 1000); // 30 secondi
-    console.log('🧹 Auto-cleanup attivato (controllo ogni 30 secondi)');
+
+    // Poi ogni 60 secondi (stesso intervallo dell'aggiornamento ordini)
+    setInterval(autoDeleteOldOrders, 60 * 1000); // 60 secondi
+    console.log('🧹 Auto-cleanup attivato (controllo ogni 60 secondi)');
 }
 
         function displayTotals(totals, orderCount) {
@@ -3511,11 +3170,11 @@ function startAutoCleanup() {
                     data.totalQuantity.toString() : 
                     data.totalQuantity.toFixed(1);
                 
-                const itemId = `total-${name.replace(/\s+/g, '-').toLowerCase()}`;
+                const itemId = `total-${name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`;
 const isCompleted = completedTotalItems.has(itemId);
 
 html += `
-    <div class="total-item ${isCompleted ? 'completed' : ''}" onclick="toggleTotalItem('${itemId}', event)">
+    <div class="total-item ${isCompleted ? 'completed' : ''}" id="${itemId}" onclick="toggleTotalItem('${itemId}', event)">
         <input type="checkbox" class="total-item-checkbox" ${isCompleted ? 'checked' : ''} 
                onchange="toggleTotalItem('${itemId}', event)" onclick="event.stopPropagation()">
         <div class="total-item-name">${name}</div>
@@ -3683,12 +3342,15 @@ html += `
         }
 
         function updateStatus(data) {
-            orderCount.textContent = data.totale_ordini || allOrders.length;
-            
-            // Conta date uniche
-            const uniqueDates = [...new Set(allOrders.map(o => o.data_evento).filter(d => d))];
+            // Filtra ordini scaduti (>24h dalla data evento)
+            const validOrders = allOrders.filter(order => !isOrderExpired(order));
+
+            orderCount.textContent = validOrders.length;
+
+            // Conta date uniche solo per ordini validi (non scaduti)
+            const uniqueDates = [...new Set(validOrders.map(o => o.data_evento).filter(d => d))];
             dateCount.textContent = uniqueDates.length;
-            
+
             if (data.last_update) {
                 const updateTime = new Date(data.last_update);
                 lastUpdate.textContent = updateTime.toLocaleTimeString('it-IT');

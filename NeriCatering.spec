@@ -5,7 +5,7 @@ a = Analysis(
     ['catering.py'],
     pathex=[],
     binaries=[],
-    datas=[('catering_data.json', '.'), ('referenze_cibi.json', '.'), ('neri.png', '.')],
+    datas=[],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['1-60213727.ico'],
+    icon=['neri.ico'],
 )
