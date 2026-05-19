@@ -1,25 +1,29 @@
 {
   "Arrosto freddo con funghi e citronette(ceramica/deluxe+decori)": {
     "difficolta": 1.0,
-    "peso_unitario": 0.03333
+    "peso_unitario": 0.05
   },
   "Arrosto freddo con funghi e citronette": {
     "difficolta": 1.0,
-    "peso_unitario": 0.03333
+    "peso_unitario": 0.05
   },
   "Bicch carta mousse chantilly+cucch.bio": {
     "difficolta": 1,
     "peso_unitario": 0.03333
   },
-  "mini tramezzini vegetariani": {
+  "Mini tramezzini vegetariani": {
     "difficolta": 1.5,
     "peso_unitario": 0.03333
   },
-  "panettone salato": {
+  "Panettone salato": {
     "difficolta": 1.5,
     "peso_unitario": 1
   },
   "Mini sandwich nutella": {
+    "difficolta": 1.5,
+    "peso_unitario": 0.03333
+  },
+  "Mini sandwich con nutella": {
     "difficolta": 1.5,
     "peso_unitario": 0.03333
   },
@@ -39,7 +43,7 @@
     "difficolta": 1.5,
     "peso_unitario": 0.03333
   },
-  "rustici vegetariani": {
+  "Rustici vegetariani": {
     "difficolta": 1.5,
     "peso_unitario": 0.03333
   },
@@ -79,11 +83,11 @@
     "difficolta": 1,
     "peso_unitario": 0.025
   },
-  "Bicch insalata di farro con edamame cavolo viola e pomodori secchi+ forch.bio": {
+  "Bicch insalata di farro con edamame cavolo viola e pomodori secchi + forch.bio": {
     "difficolta": 1,
     "peso_unitario": 0.025
   },
-  "Bicch insalata d'orzo con pesto fagiolini e mandorle+forch.bio": {
+  "Bicch orzo pesto fagiolini e mandorle + forch.bio": {
     "difficolta": 1,
     "peso_unitario": 0.025
   },
@@ -95,9 +99,9 @@
     "difficolta": 0.7,
     "peso_unitario": 0.03333
   },
-  "Ciotoline quino a lime menta e melanzane + forch.bio": {
+  "Ciotoline di quinoa con lime, menta e melanzane + forch.bio": {
     "difficolta": 1.0,
-    "peso_unitario": 1.0
+    "peso_unitario": 0.033
   },
   "Bicch cous cous con verdure + cucch.bio": {
     "difficolta": 1,
@@ -107,7 +111,7 @@
     "difficolta": 1,
     "peso_unitario": 0.03333
   },
-  "Bicch insalata di farro con verdure+ forch.bio": {
+  "Bicch insalata di farro con verdure + forch.bio": {
     "difficolta": 1,
     "peso_unitario": 0.03333
   },
@@ -147,19 +151,7 @@
     "difficolta": 1.0,
     "peso_unitario": 0.03333
   },
-  "Bicch. quinoa lime menta e melanzana+ forch.bio": {
-    "difficolta": 1,
-    "peso_unitario": 0.03333
-  },
-  "Bicch. insalata di farro con verdure +forch.bio": {
-    "difficolta": 1,
-    "peso_unitario": 0.03333
-  },
-  "Bicch.quinoa lime menta e melanzane+forch.bio": {
-    "difficolta": 1,
-    "peso_unitario": 0.03333
-  },
-  "Bicch. quinoa lime menta e melanzane": {
+  "Bicch quinoa lime menta e melanzane + forch.bio": {
     "difficolta": 1,
     "peso_unitario": 0.03333
   },
@@ -231,7 +223,7 @@
     "difficolta": 1,
     "peso_unitario": 0.03333
   },
-  "Bicch carta taralli stracchino pomodorini+ Cucch.Bio": {
+  "Bicch carta taralli stracchino pomodorini + cucch.bio": {
     "difficolta": 1,
     "peso_unitario": 0.03333
   },
@@ -241,10 +233,6 @@
   },
   "Bicch riso venere ananas e speck + forch.bio": {
     "difficolta": 1,
-    "peso_unitario": 0.03333
-  },
-  "Bicch taralli stracchino e pomodori+cucch.bio": {
-    "difficolta": 0.8,
     "peso_unitario": 0.03333
   },
   "Biscotteria": {
@@ -321,10 +309,6 @@
   },
   "Bruschettine con mousse di mortadella e granella di pistacchio": {
     "difficolta": 1.2,
-    "peso_unitario": 0.03333
-  },
-  "Bicch orzo pesto fagiolini e mandorle + forch.bio": {
-    "difficolta": 1,
     "peso_unitario": 0.03333
   },
   "Bruschettine con speck e zucchine(inox)*": {
@@ -430,7 +414,7 @@
   "Cubetti mortadella scottati all'aceto": {
     "difficolta": 1.5,
     "peso_unitario": 0.025
-  },  
+  },
   "Dadini di mortadella": {
     "difficolta": 1.5,
     "peso_unitario": 0.025
@@ -595,10 +579,6 @@
     "difficolta": 0.8,
     "peso_unitario": 0.03333
   },
-  "Indivia belga  mousse di caprino e noci": {
-    "difficolta": 0.8,
-    "peso_unitario": 0.03333
-  },
   "Insalata di pollo con cetrioli e yogurt": {
     "difficolta": 1.0,
     "peso_unitario": 0.03333
@@ -659,7 +639,7 @@
     "difficolta": 1.0,
     "peso_unitario": 0.03333
   },
-  "Bicch carta C ous C ous verdure + cucch.bio": {
+  "Bicch carta Cous Cous verdure + cucch.bio": {
     "difficolta": 1.0,
     "peso_unitario": 0.03333
   },
@@ -759,10 +739,6 @@
     "difficolta": 1.5,
     "peso_unitario": 0.02
   },
-    "Olive all'ascolana(inox)*": {
-    "difficolta": 1.5,
-    "peso_unitario": 0.02
-  },
   "Olive ascolane": {
     "difficolta": 1.5,
     "peso_unitario": 0.02
@@ -775,11 +751,6 @@
     "difficolta": 1.0,
     "peso_unitario": 1.0
   },
-  "Bicch farro con edamame cavolo viola e pomodori secchi + forch.bio": {
-    "difficolta": 1,
-    "peso_unitario": 0.03333
-  },
-
   "Parmigianini": {
     "difficolta": 1.0,
     "peso_unitario": 0.025
@@ -824,10 +795,6 @@
     "difficolta": 1.0,
     "peso_unitario": 0.03333
   },
-  "Bicch C ous C ous con verdure + cucch.bio": {
-    "difficolta": 1.0,
-    "peso_unitario": 0.03333
-  },
   "Mini sandwich farciti mix": {
     "difficolta": 1.0638,
     "peso_unitario": 0.025
@@ -856,21 +823,15 @@
     "difficolta": 1.0,
     "peso_unitario": 0.03
   },
-  "Piroghe pollo nizzarda+forch.bio": {
-    "difficolta": 1.0,
-    "peso_unitario": 0.03333
-  },
   "Pizzette": {
     "difficolta": 1.9858,
     "peso_unitario": 0.025
   },
-    "Mini Krapfen":{
-      "difficolta": 1.0,
-      "peso_unitario": 0.033
-
-    },
-
-  "Pizzette classiche": {
+  "Mini Krapfen": {
+    "difficolta": 1.0,
+    "peso_unitario": 0.033
+  },
+  "Pizzette Classiche": {
     "difficolta": 1.9858,
     "peso_unitario": 0.025
   },
@@ -898,7 +859,6 @@
     "difficolta": 0.7,
     "peso_unitario": 0.025
   },
-
   "Ricotta con composta di prugna e amerene(ceramica ovale+ decori)": {
     "difficolta": 1.0,
     "peso_unitario": 1.5
@@ -915,7 +875,6 @@
     "difficolta": 1.0,
     "peso_unitario": 0.03333
   },
-
   "Rombetti di tacchino agli agrumi": {
     "difficolta": 1.0,
     "peso_unitario": 0.03333
@@ -956,7 +915,7 @@
     "difficolta": 1.0,
     "peso_unitario": 0.03333
   },
-  "Rotolini di frittata cotto mayo e lattuga": {
+  "Rotolini di frittata cotto maionese e lattuga": {
     "difficolta": 0.7,
     "peso_unitario": 0.03333
   },
@@ -1164,7 +1123,7 @@
     "difficolta": 1.0,
     "peso_unitario": 0.03333
   },
-  "Cous cous con verdure(fioriere quadrate + decori)": {
+  "Cous cous con verdure (fioriere quadrate + decori)": {
     "difficolta": 1.0,
     "peso_unitario": 1.0
   },
@@ -1212,19 +1171,7 @@
     "difficolta": 1.0,
     "peso_unitario": 1.0
   },
-  "Ciotoline di quino a con lime, menta e melanzane+forch.bio": {
-    "difficolta": 1,
-    "peso_unitario": 0.0333
-  },
-  "Bicch carta Cous Cous verdure + cucch.bio": {
-    "difficolta": 1,
-    "peso_unitario": 0.03333
-  },
-  "    Bicchierini di c ous c ous con gamberetti e pancetta": {
-    "difficolta": 1,
-    "peso_unitario": 0.03333
-  },
-  "    Bicchierini di C ous C ous con verdure + cucch.bio": {
+  "Bicchierini di cous cous con gamberetti e pancetta": {
     "difficolta": 1,
     "peso_unitario": 0.03333
   },
@@ -1312,10 +1259,6 @@
     "difficolta": 1.0,
     "peso_unitario": 0.03
   },
-  "rombetti di frittata ai sapori di campo": {
-    "difficolta": 1.5,
-    "peso_unitario": 0.035
-  },
   "piccoli bocconcini alle olive farciti con crudo di parma": {
     "difficolta": 1.0,
     "peso_unitario": 0.03
@@ -1339,10 +1282,6 @@
   "bocconcini soffici alle olive farciti vegetariani": {
     "difficolta": 1.0,
     "peso_unitario": 0.03
-  },
-  "rotolini di frittata con maionese, prosciutto cotto e lattuga": {
-    "difficolta": 1.0,
-    "peso_unitario": 0.04
   },
   "trancio di torta salata (anche opzione vegetariana)": {
     "difficolta": 1.0,
@@ -1460,15 +1399,10 @@
     "difficolta": 1.0,
     "peso_unitario": 0.035
   },
-  "Bicchierini di cous cous con gamberetti e pancetta": {
-    "difficolta": 1,
-    "peso_unitario": 0.035
-  },
   "Crostini con salmone affumicato": {
     "difficolta": 1,
     "peso_unitario": 0.033
   },
-
   "Piccola coppa martini con gamberi in salsa cocktail": {
     "difficolta": 1.0,
     "peso_unitario": 0.035
@@ -1517,19 +1451,13 @@
     "difficolta": 1.0,
     "peso_unitario": 1
   },
-
   "Crostini con radicchio e guanciale(arg)*": {
     "difficolta": 1.0,
     "peso_unitario": 0.03333
   },
-
   "Rombetti di tacchino con melanzane, ciliegino e menta(inox)*": {
     "difficolta": 1.0,
     "peso_unitario": 0.03333
-  },
-  "Cous cous con verdure (fioriere quadrate + decori)": {
-    "difficolta": 1.0,
-    "peso_unitario": 1.0
   },
   "Mezze penne con feta, pomodorini pugliesi, olive taggiasche e basilico(fioriere quadrate + decori)": {
     "difficolta": 1.0,
@@ -1539,12 +1467,10 @@
     "difficolta": 1.0,
     "peso_unitario": 1.0
   },
-  
   "Pandoro con crema chantilly": {
     "difficolta": 1.0,
     "peso_unitario": 1.0
   },
-  
   "Certosino": {
     "difficolta": 1.5,
     "peso_unitario": 0.03333

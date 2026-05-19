@@ -1,0 +1,3 @@
+python -m PyInstaller --noconsole --onefile --name "NeriCatering" --icon="neri.ico" catering.py
+
+python -m PyInstaller --onefile --noconsole --name NeriServer server_centrale.py

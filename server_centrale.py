@@ -9,24 +9,56 @@ import os
 import json
 import time
 import threading
+import hashlib
+import re
+import shutil
+import traceback
+import logging
+import sys
+import contextlib
 from datetime import datetime, timedelta
 from collections import defaultdict
 from pathlib import Path
-import re
-import hashlib
-import shutil  # 🔥 AGGIUNGI QUESTA RIGA
 
+# ===== LOGGING =====
+# Funziona sia da script Python che da exe compilato
+if getattr(sys, 'frozen', False):
+    base_path = os.path.dirname(sys.executable)
+else:
+    base_path = os.path.dirname(os.path.abspath(__file__))
 
+log_path = os.path.join(base_path, 'server_log.txt')
+logging.basicConfig(
+    filename=log_path,
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    encoding='utf-8'   # FIX: evita crash su Windows con le emoji
+)
+
+# FIX: LogRedirect DOPO aver configurato logging
+class LogRedirect:
+    def write(self, msg):
+        if msg.strip():
+            logging.info(msg.strip())
+    def flush(self):
+        pass
+
+sys.stdout = LogRedirect()
+sys.stderr = LogRedirect()
+
+# ===== FLASK =====
 from flask import Flask, jsonify, request
 try:
     from flask_cors import CORS
     CORS_AVAILABLE = True
 except ImportError:
     CORS_AVAILABLE = False
+
+# ===== WATCHDOG =====
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-# ===== NUOVO: FIREBASE IMPORTS =====
+# ===== FIREBASE =====
 try:
     import firebase_admin
     from firebase_admin import credentials, firestore
@@ -36,411 +68,451 @@ except ImportError:
     FIREBASE_AVAILABLE = False
     print("⚠️ Firebase non disponibile - installare con: pip install firebase-admin")
 
+# Flag globale per modalità debug (mette verbose output nel log)
+DEBUG_PARSING = False
+
+
+# ===========================
+# FirebaseManager
+# ===========================
 class FirebaseManager:
     """Gestisce la sincronizzazione con Firebase"""
-    
+
     def __init__(self):
         self.db = None
         self.firebase_enabled = False
-        self.init_firebase()
-    
-    def init_firebase(self):
-        """Inizializza Firebase con credenziali"""
+        self._init_firebase()
+
+    def _init_firebase(self):
         if not FIREBASE_AVAILABLE:
             print("❌ Firebase non disponibile")
             return
-        
+
         try:
-            # Cerca il file delle credenziali
             cred_files = [
                 "firebase-credentials.json",
-                "serviceAccountKey.json", 
+                "serviceAccountKey.json",
                 "firebase-adminsdk.json"
             ]
-            
-            cred_path = None
-            for file in cred_files:
-                if os.path.exists(file):
-                    cred_path = file
-                    break
-            
+            cred_path = next((f for f in cred_files if os.path.exists(f)), None)
+
             if not cred_path:
                 print("⚠️ File credenziali Firebase non trovato!")
                 print("📋 Salva le credenziali come 'firebase-credentials.json'")
                 return
-            
-            # Inizializza Firebase
+
             if not firebase_admin._apps:
                 cred = credentials.Certificate(cred_path)
                 firebase_admin.initialize_app(cred)
-            
+
             self.db = firestore.client()
             self.firebase_enabled = True
             print(f"✅ Firebase inizializzato con {cred_path}")
-            
-            # Test connessione
-            self.test_connection()
-            
+            self._test_connection()
+
         except Exception as e:
             print(f"❌ Errore inizializzazione Firebase: {e}")
             self.firebase_enabled = False
-    
-    def test_connection(self):
-        """Testa la connessione Firebase"""
+
+    def _test_connection(self):
         try:
-            # Scrive un documento di test
-            test_ref = self.db.collection('test').document('connection')
-            test_ref.set({
+            self.db.collection('test').document('connection').set({
                 'timestamp': datetime.now().isoformat(),
                 'status': 'ok'
             })
-            print("🔥 Test Firebase OK - Connessione stabilita")
+            print("🔥 Test Firebase OK")
         except Exception as e:
             print(f"⚠️ Test Firebase fallito: {e}")
-    
+
     def upload_ordini(self, ordini_singoli, ordini_aggregati):
-        """Carica ordini su Firebase (Ottimizzato con Chunking)"""
+        """Carica ordini su Firebase con batch chunking (max 500 doc/batch)."""
         if not self.firebase_enabled:
             return False
-        
+
         try:
-            # 🔥 LOTTIZZAZIONE: Dividiamo gli ordini in pacchetti da 50
             items = list(ordini_singoli.items())
-            chunk_size = 50 
-            
+            chunk_size = 50
+
             for i in range(0, len(items), chunk_size):
                 batch = self.db.batch()
                 chunk = items[i:i + chunk_size]
-                
-                # CARICA ORDINI SINGOLI DEL CHUNK
+
                 for ordine_id, ordine in chunk:
                     doc_ref = self.db.collection('ordini_singoli').document(ordine_id)
-                    ordine_data = {
+                    batch.set(doc_ref, {
                         'id': ordine['id'],
                         'info': ordine['info'],
                         'cibo': ordine['cibo'],
                         'stato': ordine['stato'],
                         'ultimo_aggiornamento': ordine['ultimo_aggiornamento'],
                         'cloud_sync': datetime.now().isoformat()
-                    }
-                    batch.set(doc_ref, ordine_data)
-                
-                # 🔥 AGGIUNGI METADATA SOLO NELL'ULTIMO PACCHETTO
+                    })
+
+                # Metadata solo nell'ultimo pacchetto
                 if i + chunk_size >= len(items):
-                    meta_doc = self.db.collection('sistema').document('metadata')
-                    batch.set(meta_doc, {
+                    meta_ref = self.db.collection('sistema').document('metadata')
+                    batch.set(meta_ref, {
                         'totale_ordini': len(ordini_singoli),
                         'ultimo_sync': datetime.now().isoformat(),
-                        'versione': '3.0-OTTIMIZZATA'
+                        'versione': '3.1'
                     })
-                    # ❌ ABBIAMO RIMOSSO L'INVIO DI "ordini_aggregati" PER EVITARE L'ERRORE DEGLI INDICI
-                
-                # Conferma e invia questo singolo pacchetto
+
                 batch.commit()
-                print(f"📦 Firebase: Inviato pacchetto di {len(chunk)} ordini")
-            
-            print(f"🔥 Firebase sync OK: {len(ordini_singoli)} ordini totali caricati")
+                print(f"📦 Firebase: pacchetto {len(chunk)} ordini inviato")
+
+            print(f"🔥 Firebase sync OK: {len(ordini_singoli)} ordini totali")
             return True
-            
+
         except Exception as e:
             print(f"❌ Errore upload Firebase: {e}")
+            traceback.print_exc()
             return False
-    
-    def cleanup_old_orders(self, max_hours=24):
-        """Pulisce ordini vecchi da Firebase (oltre 24h)"""
-        if not self.firebase_enabled:
+
+    def delete_ordini(self, order_ids):
+        """Cancella una lista di ordini da Firebase."""
+        if not self.firebase_enabled or not order_ids:
             return
-        
         try:
-            cutoff_date = datetime.now() - timedelta(hours=max_hours)
-            
-            # Query ordini vecchi
-            old_orders = self.db.collection('ordini_singoli').where(
-                'ultimo_aggiornamento', '<', cutoff_date.isoformat()
-            ).get()
-            
-            deleted_count = 0
-            for doc in old_orders:
-                doc.reference.delete()
-                deleted_count += 1
-            
-            if deleted_count > 0:
-                print(f"🧹 Firebase cleanup: {deleted_count} ordini vecchi (>24h) rimossi")
-            else:
-                print(f"✅ Firebase cleanup: nessun ordine da rimuovere")
-                
+            batch = self.db.batch()
+            for order_id in order_ids:
+                ref = self.db.collection('ordini_singoli').document(order_id)
+                batch.delete(ref)
+            batch.commit()
+            print(f"🗑️ Firebase: cancellati {len(order_ids)} ordini")
         except Exception as e:
-            print(f"⚠️ Errore cleanup Firebase: {e}")
+            print(f"⚠️ Errore cancellazione Firebase: {e}")
+
+    def cleanup_old_orders(self, max_hours=24):
+        """No-op: la pulizia reale avviene in smart_firebase_sync_with_cleanup."""
+        print("✅ cleanup_old_orders: gestito da smart_firebase_sync_with_cleanup")
+
     def start_auto_cleanup(self, interval_minutes=30):
-        """Avvia cleanup automatico periodico"""
+        """Avvia cleanup automatico periodico (thread daemon)."""
         if not self.firebase_enabled:
             print("⚠️ Auto-cleanup disabilitato (Firebase non disponibile)")
             return
-        
+
         def cleanup_worker():
-            """Thread worker per cleanup periodico"""
             while True:
                 try:
                     print(f"\n🕐 Avvio cleanup automatico...")
                     self.cleanup_old_orders(max_hours=24)
-                    time.sleep(interval_minutes * 60)  # Converti minuti in secondi
+                    time.sleep(interval_minutes * 60)
                 except Exception as e:
                     print(f"❌ Errore nel cleanup worker: {e}")
-                    time.sleep(60)  # Riprova dopo 1 minuto in caso di errore
-        
-        cleanup_thread = threading.Thread(target=cleanup_worker, daemon=True)
-        cleanup_thread.start()
+                    time.sleep(60)
+
+        t = threading.Thread(target=cleanup_worker, daemon=True)
+        t.start()
         print(f"✅ Auto-cleanup avviato (ogni {interval_minutes} minuti)")
 
 
+# ===========================
+# WordFileHandler
+# ===========================
 class WordFileHandler(FileSystemEventHandler):
-    """Gestisce eventi di modifica sui file Word - VERSIONE CORRETTA"""
-    
+    """Gestisce eventi di modifica sui file Word."""
+
     def __init__(self, server_instance):
         self.server = server_instance
-        
-    def should_ignore_file(self, filepath):
-        """Controlla se il file dovrebbe essere ignorato"""
-        # 🔥 IGNORA file nella cartella _cancellati
-        if "_cancellati" in filepath:
-            print(f"⏭️ IGNORANDO file in cartella cancellati: {filepath}")
+
+    def _should_ignore(self, filepath):
+        if "_cancellati" in filepath or "$Recycle.Bin" in filepath:
             return True
-        
-        # Ignora file temporanei Word
         filename = os.path.basename(filepath)
-        if filename.startswith('~$'):
-            print(f"⏭️ IGNORANDO file temporaneo: {filepath}")
-            return True
-            
-        # Solo file .docx
-        if not filepath.endswith('.docx'):
-            return True
-            
-        return False
-        
+        return filename.startswith('~$') or not filepath.endswith('.docx')
+
+    def _gestisci_eliminazione(self, filepath):
+        ordine_id = self.server.genera_id_ordine(filepath)
+        with self.server._lock:
+            if ordine_id not in self.server.ordini_singoli:
+                return
+            del self.server.ordini_singoli[ordine_id]
+            self.server._synced_timestamps.pop(ordine_id, None)
+
+        self.server.rigenera_aggregazione()
+        self.server.last_update = datetime.now()
+        print(f"✅ Ordine {ordine_id} rimosso dalla memoria")
+
+        self.server.firebase.delete_ordini([ordine_id])
+
     def on_modified(self, event):
-        if event.is_directory:
+        if event.is_directory or self._should_ignore(event.src_path):
             return
-            
-        if self.should_ignore_file(event.src_path):
-            return
-            
-        print(f"📄 File modificato (accettato): {event.src_path}")
+        print(f"📄 File modificato: {event.src_path}")
         self.server.aggiorna_ordine_da_file(event.src_path)
-    
+
     def on_created(self, event):
-        if event.is_directory:
+        if event.is_directory or self._should_ignore(event.src_path):
             return
-            
-        if self.should_ignore_file(event.src_path):
-            return
-            
-        print(f"📄 Nuovo file (accettato): {event.src_path}")
-        time.sleep(1)  # Aspetta che il file sia completamente scritto
+        print(f"📄 Nuovo file: {event.src_path}")
+        time.sleep(1)  # Attendi che il file sia completamente scritto
         self.server.aggiorna_ordine_da_file(event.src_path)
-    
+
+    def on_deleted(self, event):
+        if event.is_directory or self._should_ignore(event.src_path):
+            return
+        print(f"🗑️ File eliminato fisicamente: {event.src_path}")
+        self._gestisci_eliminazione(event.src_path)
+
     def on_moved(self, event):
-        """🔥 NUOVO: Gestisce spostamenti di file"""
         if event.is_directory:
             return
-        
-        # Se un file viene spostato IN _cancellati, ignoralo
-        if "_cancellati" in event.dest_path:
-            print(f"📁 File spostato in _cancellati (ignorato): {event.src_path} → {event.dest_path}")
-            return
-            
-        # Se un file viene spostato FUORI da _cancellati, trattalo come nuovo
-        if "_cancellati" in event.src_path and not "_cancellati" in event.dest_path:
-            print(f"📄 File ripristinato da _cancellati: {event.src_path} → {event.dest_path}")
-            if not self.should_ignore_file(event.dest_path):
-                time.sleep(1)
-                self.server.aggiorna_ordine_da_file(event.dest_path)
+        if "_cancellati" in event.dest_path or "Recycle.Bin" in event.dest_path:
+            print(f"🗑️ File spostato nel cestino: {event.src_path}")
+            self._gestisci_eliminazione(event.src_path)
+        elif (("_cancellati" in event.src_path or "Recycle.Bin" in event.src_path)
+              and not self._should_ignore(event.dest_path)):
+            print(f"📄 File ripristinato: {event.dest_path}")
+            time.sleep(1)
+            self.server.aggiorna_ordine_da_file(event.dest_path)
 
 
+# ===========================
+# Parsing regex (centralizzato)
+# ===========================
+# Pattern ordinati per priorità; la prima lista ha match esclusivi.
+# Ogni entry: (pattern_compilato, tipo)
+#   tipo "kg_qty_name"   → gruppo 1=quantità, gruppo 2=nome
+#   tipo "kg_name_qty"   → gruppo 1=nome, gruppo 2=quantità
+#   tipo "paren_pz"      → gruppo 1=totale, gruppo 2=parziale, gruppo 3=nome
+#   tipo "paren_kg"      → gruppo 1=totale, gruppo 2=quantità, gruppo 3=nome
+#   tipo "paren_plain"   → gruppo 1=totale, gruppo 2=parziale, gruppo 3=nome
+#   tipo "pz"            → gruppo 1=quantità, gruppo 2=nome
+#   tipo "plain"         → gruppo 1=quantità, gruppo 2=nome
+
+_PATTERNS = [
+    # KG
+    (re.compile(r'^\*{0,2}(\d+\.?\d*)\s*kg\s+(.+?)\*{0,2}$', re.I), 'kg_qty_name'),
+    (re.compile(r'^\*{0,2}(.+?)\s+(\d+\.?\d*)\s*kg\*{0,2}$', re.I),  'kg_name_qty'),
+    # Formato parentesi (intolleranze)
+    (re.compile(r'^\((\d+)\)(\d+)\s*pz\s+(.+)$', re.I),               'paren_pz'),
+    (re.compile(r'^\((\d+)\)(\d+\.?\d*)\s*kg\s+(.+)$', re.I),         'paren_kg'),
+    (re.compile(r'^\((\d+)\)(\d+)\s+(.+)$', re.I),                    'paren_plain'),
+    # Tradizionali
+    (re.compile(r'^\*{0,2}(\d+)\s*pz\s+(.+?)\*{0,2}$', re.I),        'pz'),
+    (re.compile(r'^\*{0,2}(\d+)\s+(.+?)\*{0,2}$', re.I),              'plain'),
+]
+
+_SKIP_KEYWORDS = {
+    "nr progr", "all'attenzione", "presso", "aperitivo", "coffee break",
+    "tea break", "lunch buffet", "persone", "allestimento", "pronti",
+    "bevande", "sala", "lunedì", "martedì", "mercoledì", "giovedì",
+    "venerdì", "sabato", "domenica", "gennaio", "febbraio", "marzo",
+    "aprile", "maggio", "giugno", "luglio", "agosto", "settembre",
+    "ottobre", "novembre", "dicembre", "totale", "pax", "euro", "€",
+    "ore", "orario", "via", "telefono", "email", "fax", "intolleranti"
+}
+
+_PUNCTUATION_ONLY = {"•", "-", "*", "○", "●", "◦", "|", "+", "="}
+
+
+def _parse_riga(riga_original):
+    """
+    Prova a fare match di una riga con i pattern definiti.
+    Restituisce (nome, quantita_str) o None se non riconosciuta.
+    """
+    for pattern, tipo in _PATTERNS:
+        m = pattern.match(riga_original)
+        if not m:
+            continue
+
+        if tipo == 'kg_qty_name':
+            qty, nome = float(m.group(1)), m.group(2)
+            return _clean_name(nome), f"{qty} kg"
+
+        elif tipo == 'kg_name_qty':
+            nome, qty = m.group(1), float(m.group(2))
+            return _clean_name(nome), f"{qty} kg"
+
+        elif tipo == 'paren_pz':
+            totale = int(m.group(1))
+            nome = m.group(3)
+            return _clean_name(nome), f"{totale} pezzi"
+
+        elif tipo == 'paren_kg':
+            qty = float(m.group(2))
+            nome = m.group(3)
+            return _clean_name(nome), f"{qty} kg"
+
+        elif tipo == 'paren_plain':
+            totale = int(m.group(1))
+            nome = m.group(3)
+            return _clean_name(nome), f"{totale} pezzi"
+
+        elif tipo in ('pz', 'plain'):
+            numero = int(m.group(1))
+            nome = m.group(2)
+            return _clean_name(nome), f"{numero} pezzi"
+
+    return None
+
+
+def _clean_name(nome):
+    return " ".join(nome.replace('*', '').split())
+
+
+def _accumula(prodotti, nome, quantita_str):
+    """Aggiunge o somma un prodotto nel dizionario prodotti."""
+    key = nome.lower().replace(' ', '_')
+    if key not in prodotti:
+        prodotti[key] = {'nome': nome, 'quantita': quantita_str}
+        return
+
+    prev = prodotti[key]['quantita']
+    try:
+        if 'kg' in quantita_str and 'kg' in prev:
+            v1 = float(prev.replace(' kg', ''))
+            v2 = float(quantita_str.replace(' kg', ''))
+            prodotti[key]['quantita'] = f"{v1 + v2} kg"
+        elif 'pezzi' in quantita_str and 'pezzi' in prev:
+            v1 = int(prev.split()[0])
+            v2 = int(quantita_str.split()[0])
+            prodotti[key]['quantita'] = f"{v1 + v2} pezzi"
+        else:
+            # Unità incompatibili: sovrascrivi
+            prodotti[key]['quantita'] = quantita_str
+    except (ValueError, IndexError):
+        prodotti[key]['quantita'] = quantita_str
+
+
+# ===========================
+# ServerCentraleCloud
+# ===========================
 class ServerCentraleCloud:
-    """Server centrale con sincronizzazione Firebase"""
-    
+    """Server centrale con sincronizzazione Firebase."""
+
     def __init__(self):
-        # Mantiene ordini singoli + aggregazione
-        self.ordini_singoli = {}  # {ordine_id: {info_ordine + quantita_cibo}}
-        self.ordini_aggregati = {}  # {data: {nome_cibo: quantita_totale}}
-        
+        self._lock = threading.Lock()  # FIX: protezione accesso concorrente a ordini_singoli
+
+        self.ordini_singoli = {}
+        self.ordini_aggregati = {}
+        self._synced_timestamps = {}
+
         self.cartella_ordini = "ordini_docx"
-        self.cartella_drive = "ordini_drive"  # NUOVA cartella Drive
+        self.cartella_drive = "ordini_drive"
 
         self.last_update = datetime.now()
-        
-        # ===== NUOVO: FIREBASE MANAGER =====
+
         self.firebase = FirebaseManager()
-        
-        # 🧹 CLEANUP INIZIALE: rimuovi ordini vecchi all'avvio
+
         if self.firebase.firebase_enabled:
             print("\n🧹 Esecuzione cleanup iniziale ordini vecchi...")
             self.firebase.cleanup_old_orders(max_hours=24)
-            
-            # 🕐 Avvia cleanup automatico ogni 30 minuti
             self.firebase.start_auto_cleanup(interval_minutes=30)
-        
-        # Crea Flask app
+
         self.app = Flask(__name__)
-        
-        # Abilita CORS se disponibile
+
         if CORS_AVAILABLE:
             CORS(self.app)
             print("✅ CORS abilitato")
         else:
             print("⚠️ CORS non disponibile - installare con: pip install flask-cors")
-        
-        # Registra routes
+
         self.registra_routes()
-        
-        # Avvia monitoring
         self.avvia_file_watcher()
-        
-        # Carica ordini esistenti
         self.carica_ordini_esistenti()
-        
-        # ===== NUOVO: SYNC TIMER =====
         self.avvia_sync_automatico()
-    
+
+    # -------- SYNC --------
+
     def avvia_sync_automatico(self):
-        """Sync automatico INTELLIGENTE - non sovrascrive cancellazioni e rimuove ordini scaduti"""
+        """Sync automatico INTELLIGENTE ogni 30 secondi."""
         def sync_loop():
             while True:
                 try:
-                    time.sleep(30)  # Sync ogni 30 secondi
-
+                    time.sleep(30)
                     if self.firebase.firebase_enabled:
-                        # 🔥 SYNC INTELLIGENTE + PULIZIA ORDINI SCADUTI
                         self.smart_firebase_sync_with_cleanup()
-
                 except Exception as e:
                     print(f"❌ Errore loop sync automatico: {e}")
-                    import traceback
                     traceback.print_exc()
 
-        sync_thread = threading.Thread(target=sync_loop, daemon=True)
-        sync_thread.start()
-        print("🔄 Sync automatico Firebase INTELLIGENTE avviato (ogni 30s)")
+        t = threading.Thread(target=sync_loop, daemon=True)
+        t.start()
+        print("🔄 Sync automatico Firebase avviato (ogni 30s)")
 
-    
     def smart_firebase_sync_with_cleanup(self):
-        """Sync intelligente con pulizia ordini scaduti lato server e Firebase"""
-        try:
-            print("🧠 Sync Firebase intelligente con pulizia...")
+        """
+        Sync intelligente OTTIMIZZATO - zero letture Firebase se nulla è cambiato.
 
-            cutoff_date = datetime.now() - timedelta(hours=24)
+        - Rimuove dalla memoria (e Firebase) ordini con evento >48h fa
+        - Scrive su Firebase SOLO gli ordini nuovi o modificati
+        """
+        try:
+            limite_scadenza = datetime.now() - timedelta(days=2)
 
             if not self.firebase.firebase_enabled:
-                print("⚠️ Firebase non abilitato, skipping sync")
                 return
 
-            # ==============================
-            # 1️⃣ Cancella ordini scaduti su Firebase
-            # ==============================
-            print("🗑️ Controllo e rimozione ordini scaduti su Firebase...")
-            docs = self.firebase.db.collection('ordini_singoli').stream()
-            for doc in docs:
-                data = doc.to_dict()
-                ultimo_update = data.get('ultimo_aggiornamento')
-                if ultimo_update:
-                    try:
-                        update_time = datetime.fromisoformat(ultimo_update)
-                        if update_time < cutoff_date:
-                            doc.reference.delete()
-                            print(f"✅ Firebase: eliminato ordine scaduto {doc.id}")
-                    except Exception as e:
-                        print(f"⚠️ Errore parsing data ordine {doc.id}: {e}")
-
-            # ==============================
-            # 2️⃣ Carica ordini validi da Firebase
-            # ==============================
-            firebase_orders = {}
-            docs = self.firebase.db.collection('ordini_singoli').stream()
-            for doc in docs:
-                data = doc.to_dict()
-                ultimo_update = data.get('ultimo_aggiornamento')
-                if ultimo_update:
-                    try:
-                        update_time = datetime.fromisoformat(ultimo_update)
-                        if update_time >= cutoff_date:
-                            firebase_orders[doc.id] = data
-                    except Exception:
-                        continue
-
-            # ==============================
-            # 3️⃣ Rimuovi ordini scaduti dal server locale
-            # ==============================
+            # 1️⃣ Pulizia ordini scaduti
             orders_to_remove = []
-            for order_id, order_data in self.ordini_singoli.items():
-                ultimo_update = order_data.get('ultimo_aggiornamento')
-                if ultimo_update:
+            with self._lock:
+                for order_id, order_data in list(self.ordini_singoli.items()):
+                    data_evento_str = order_data.get('info', {}).get('data_evento')
+                    if not data_evento_str:
+                        continue
                     try:
-                        update_time = datetime.fromisoformat(ultimo_update)
-                        if update_time < cutoff_date:
+                        parti = data_evento_str.split('/')
+                        data_evento = datetime(int(parti[2]), int(parti[1]), int(parti[0]))
+                        if data_evento < limite_scadenza:
                             orders_to_remove.append(order_id)
-                            nome_cliente = order_data.get('info', {}).get('nome_cliente', order_id)
-                            print(f"🧹 Server locale: rimuovo ordine scaduto {nome_cliente} ({order_id})")
+                            nome = order_data.get('info', {}).get('nome_cliente', order_id)
+                            print(f"🧹 Ordine scaduto rimosso: {nome} ({data_evento_str})")
                     except Exception:
                         continue
 
-            for order_id in orders_to_remove:
-                del self.ordini_singoli[order_id]
+                for order_id in orders_to_remove:
+                    del self.ordini_singoli[order_id]
+                    self._synced_timestamps.pop(order_id, None)
 
             if orders_to_remove:
+                self.firebase.delete_ordini(orders_to_remove)
                 self.rigenera_aggregazione()
-                print(f"📊 Aggregazione aggiornata dopo rimozione di {len(orders_to_remove)} ordini scaduti")
+                print(f"🗑️ Rimossi {len(orders_to_remove)} ordini scaduti")
 
-            # ==============================
-            # 4️⃣ Sincronizza ordini nuovi o modificati su Firebase
-            # ==============================
-            to_add_or_update = {}
-            for order_id, order_data in self.ordini_singoli.items():
-                if (order_id not in firebase_orders or
-                    firebase_orders[order_id].get('ultimo_aggiornamento') != order_data.get('ultimo_aggiornamento')):
-                    to_add_or_update[order_id] = order_data
+            # 2️⃣ Sync selettivo: solo ordini nuovi o modificati
+            to_sync = {}
+            with self._lock:
+                for order_id, order_data in self.ordini_singoli.items():
+                    current_ts = order_data.get('ultimo_aggiornamento')
+                    if current_ts != self._synced_timestamps.get(order_id):
+                        to_sync[order_id] = order_data
 
-            if to_add_or_update:
-                self.firebase.upload_ordini(to_add_or_update, self.ordini_aggregati)
-                print(f"✅ Sync completato: {len(to_add_or_update)} ordini sincronizzati")
+            if to_sync:
+                self.firebase.upload_ordini(to_sync, self.ordini_aggregati)
+                with self._lock:
+                    for order_id, order_data in to_sync.items():
+                        self._synced_timestamps[order_id] = order_data.get('ultimo_aggiornamento')
+                print(f"✅ Sync: {len(to_sync)} ordini aggiornati su Firebase")
             else:
-                print("✅ Nessun ordine nuovo/modificato da sincronizzare")
+                print("✅ Sync: nessuna modifica da inviare")
 
         except Exception as e:
-            print(f"❌ Errore smart sync con pulizia: {e}")
-            import traceback
+            print(f"❌ Errore smart sync: {e}")
             traceback.print_exc()
 
-    
+    # -------- ORDINE ID --------
+
     def genera_id_ordine(self, filepath):
-        """Genera ID ordine basato solo sul nome del file"""
-        import hashlib
-        filename = os.path.basename(filepath)
-        # Rimuovi estensione
-        name_without_ext = os.path.splitext(filename)[0]
-        ordine_id = hashlib.md5(name_without_ext.encode()).hexdigest()[:8]
-        return ordine_id
-    
+        """Genera ID ordine da nome file (MD5 troncato)."""
+        filename = os.path.splitext(os.path.basename(filepath))[0]
+        return hashlib.md5(filename.encode()).hexdigest()[:8]
+
+    # -------- ESTRAZIONE INFO DA FILENAME --------
+
     def estrai_info_ordine_da_filename(self, filename, filepath):
-        """Estrae informazioni ordine dal nome file"""
         try:
-            # Pattern: Nome_Cliente_DD-MM-YYYY.docx
             base_name = os.path.splitext(filename)[0]
-            
-            # Cerca pattern data
             date_match = re.search(r'(\d{2}-\d{2}-\d{4})', base_name)
             if date_match:
                 data_str = date_match.group(1).replace('-', '/')
-                # Rimuovi la data dal nome per ottenere il cliente
-                nome_cliente = base_name.replace(f"_{date_match.group(1)}", "").replace(date_match.group(1), "")
-                nome_cliente = nome_cliente.strip('_')
+                nome_cliente = base_name.replace(f"_{date_match.group(1)}", "").replace(date_match.group(1), "").strip('_')
             else:
                 data_str = None
                 nome_cliente = base_name
-            
-            # Info file
+
             stat = os.stat(filepath)
-            
             return {
                 'nome_cliente': nome_cliente,
                 'data_evento': data_str,
@@ -450,7 +522,6 @@ class ServerCentraleCloud:
                 'data_modifica': datetime.fromtimestamp(stat.st_mtime).isoformat(),
                 'dimensione_file': stat.st_size
             }
-            
         except Exception as e:
             print(f"❌ Errore estrazione info da {filename}: {e}")
             return {
@@ -462,306 +533,77 @@ class ServerCentraleCloud:
                 'data_modifica': datetime.now().isoformat(),
                 'dimensione_file': 0
             }
-    
+
+    # -------- LETTURA WORD --------
+
     def leggi_quantita_da_word(self, path_docx):
         """
-        Legge quantità da Word - VERSIONE CORRETTA con supporto nuovo formato
-        Riconosce: (2)1 pz Pasta corta fai tu, 1 pz Pasta corta fai tu, 3.5 kg Cous cous
+        Legge quantità da Word.
+        Riconosce: kg, pz, (X)Y pz, (X)Y kg, numeri semplici.
         Ritorna: {chiave: {'nome': str, 'quantita': str}}
         """
         if not os.path.exists(path_docx):
             print(f"❌ File Word non trovato: {path_docx}")
             return {}
-        
+
         try:
             from docx import Document
-            import re
             doc = Document(path_docx)
-            
-            prodotti = {}
-            
-            print(f"\n📄 === LETTURA DA: {os.path.basename(path_docx)} ===")
-            
-            # Leggi TUTTO il testo del documento
+
+            # Raccoglie tutto il testo (paragrafi + tabelle)
             all_text = ""
-            
-            # 1. LEGGI DA PARAGRAFI
             for para in doc.paragraphs:
                 if para.text.strip():
                     all_text += para.text + "\n"
-            
-            # 2. LEGGI DA TABELLE  
             for table in doc.tables:
                 for row in table.rows:
                     for cell in row.cells:
                         if cell.text.strip():
                             all_text += cell.text + "\n"
-            
-            # 3. PROCESSA TUTTO IL TESTO RIGA PER RIGA
-            righe = [r.strip() for r in all_text.split('\n') if r.strip()]
-            
-            print(f"📋 Analizzando {len(righe)} righe totali...")
-            
-            # Parole da saltare (headers, etc.)
-            skip_keywords = [
-                "nr progr", "all'attenzione", "presso", "aperitivo", "coffee break", 
-                "tea break", "lunch buffet", "persone", "allestimento", "pronti",
-                "bevande", "sala", "lunedì", "martedì", "mercoledì", "giovedì", 
-                "venerdì", "sabato", "domenica", "gennaio", "febbraio", "marzo",
-                "aprile", "maggio", "giugno", "luglio", "agosto", "settembre",
-                "ottobre", "novembre", "dicembre", "totale", "pax", "euro", "€",
-                "ore", "orario", "via", "telefono", "email", "fax", "intolleranti"
-            ]
-            
-            for i, riga in enumerate(righe):
-                riga_original = riga.strip()
-                print(f"   DEBUG RIGA {i+1}: '{riga_original}'")
 
-                riga_lower = riga_original.lower()
-                
-                # Salta righe vuote o troppo corte
-                if len(riga_original) < 3:
+            righe = [r.strip() for r in all_text.split('\n') if r.strip()]
+
+            prodotti = {}
+
+            for riga in righe:
+                if len(riga) < 3:
                     continue
-                
-                # Salta righe con parole chiave da evitare
-                if any(keyword in riga_lower for keyword in skip_keywords) and "kg" not in riga_lower:                    
+                if riga in _PUNCTUATION_ONLY:
                     continue
-                
-                # Salta se è solo punteggiatura
-                if riga_original.strip() in ["•", "-", "*", "○", "●", "◦", "|", "+", "="]:
+
+                riga_lower = riga.lower()
+                # Salta header/keywords, ma non se contiene "kg" (potrebbe essere un prodotto)
+                if any(kw in riga_lower for kw in _SKIP_KEYWORDS) and 'kg' not in riga_lower:
                     continue
-                
-                prodotto_trovato = False
-                
-                # ========== PATTERN 1: PESO IN KG ==========
-                patterns_kg = [
-                    r'^(\d+\.?\d*)\s*kg\s+(.+)$',
-                    r'^\*\*(\d+\.?\d*)\s*kg\s+(.+?)\*\*$',
-                    r'^(.+?)\s+(\d+\.?\d*)\s*kg$',
-                    r'^\*\*(.+?)\s+(\d+\.?\d*)\s*kg\*\*$'
-                ]
-                
-                for pattern in patterns_kg:
-                    match = re.match(pattern, riga_original, re.IGNORECASE)
-                    if match:
-                        if pattern.endswith('kg$') or 'kg\\*\\*$' in pattern:
-                            nome = match.group(1).strip()
-                            peso = match.group(2)
-                        else:
-                            peso = match.group(1)
-                            nome = match.group(2).strip()
-                        
-                        nome = nome.replace('*', '').strip()
-                        peso_float = float(peso)
-                        
-                        key = nome.lower().replace(' ', '_')
-                        
-                        if key in prodotti and 'kg' in prodotti[key]['quantita']:
-                            peso_esistente = float(prodotti[key]['quantita'].replace(' kg', ''))
-                            peso_totale = peso_esistente + peso_float
-                            prodotti[key]['quantita'] = f"{peso_totale} kg"
-                            print(f"   🔄 KG ACCUMULATO: {nome} = {peso_esistente} + {peso_float} = {peso_totale} kg")
-                        else:
-                            prodotti[key] = {
-                                'nome': nome,
-                                'quantita': f"{peso_float} kg"
-                            }
-                            print(f"   ✅ KG: {nome} = {peso_float} kg")
-                        
-                        prodotto_trovato = True
-                        break
-                
-                if prodotto_trovato:
-                    continue
-                
-                # ========== PATTERN 2: NUOVO FORMATO CON PARENTESI ==========
-                print(f"   TESTANDO PARENTESI per: '{riga_original}'")
-                
-                # Pattern per (X)Y pz Nome e (X)Y Nome
-                pattern_pz = r'^\((\d+)\)(\d+)\s*pz\s+(.+)$'
-                pattern_semplice = r'^\((\d+)\)(\d+)\s+(.+)$'
-                pattern_kg = r'^\((\d+)\)(\d+\.?\d*)\s*kg\s+(.+)$'
-                
-                # Test pattern con pz
-                match = re.match(pattern_pz, riga_original, re.IGNORECASE)
-                if match:
-                    print(f"      ✅ MATCH PARENTESI PZ TROVATO!")
-                    numero_totale = int(match.group(1))         # 12
-                    quantita_per_persona = int(match.group(2))  # 7 (non lo usiamo più)
-                    nome = match.group(3).strip()
-                    
-                    nome = nome.replace('*', '').strip()
-                    nome = " ".join(nome.split())
-                    
-                    key = nome.lower().replace(' ', '_')
-                    
-                    if key in prodotti:
-                        try:
-                            numero_esistente = int(prodotti[key]['quantita'].split()[0])
-                            numero_totale_finale = numero_esistente + numero_totale  # ← CAMBIATO DA quantita_per_persona
-                            prodotti[key]['quantita'] = f"{numero_totale_finale} pezzi"
-                            print(f"   🔄 PARENTESI PEZZI ACCUMULATI: {nome} = {numero_esistente} + {numero_totale} = {numero_totale_finale}")  # ← CAMBIATO
-                        except:
-                            prodotti[key]['quantita'] = f"{numero_totale} pezzi"  # ← CAMBIATO DA quantita_per_persona
-                    else:
-                        prodotti[key] = {
-                            'nome': nome,
-                            'quantita': f"{numero_totale} pezzi"  # ← CAMBIATO DA quantita_per_persona
-                        }
-                        print(f"   ✅ PARENTESI PZ: {nome} = {numero_totale} pezzi (era parziale: {quantita_per_persona})")  # ← CAMBIATO
-                    
-                    prodotto_trovato = True
-                # Test pattern semplice se non trovato con pz
-                if not prodotto_trovato:
-                    match = re.match(pattern_semplice, riga_original, re.IGNORECASE)
-                    if match:
-                        print(f"      ✅ MATCH PARENTESI SEMPLICE TROVATO!")
-                        numero_totale = int(match.group(1))
-                        quantita_per_persona = int(match.group(2))
-                        nome = match.group(3).strip()
-                        
-                        nome = nome.replace('*', '').strip()
-                        nome = " ".join(nome.split())
-                        
-                        key = nome.lower().replace(' ', '_')
-                        
-                        if key in prodotti:
-                            try:
-                                numero_esistente = int(prodotti[key]['quantita'].split()[0])
-                                numero_totale_finale = numero_esistente + quantita_per_persona
-                                prodotti[key]['quantita'] = f"{numero_totale_finale} pezzi"
-                                print(f"   🔄 PARENTESI SEMPLICE ACCUMULATI: {nome} = {numero_esistente} + {quantita_per_persona} = {numero_totale_finale}")
-                            except:
-                                prodotti[key]['quantita'] = f"{quantita_per_persona} pezzi"
-                        else:
-                            prodotti[key] = {
-                                'nome': nome,
-                                'quantita': f"{quantita_per_persona} pezzi"
-                            }
-                            print(f"   ✅ PARENTESI SEMPLICE: {nome} = {quantita_per_persona} pezzi (totale persone: {numero_totale})")
-                        
-                        prodotto_trovato = True
-                
-                # Test pattern kg se non trovato
-                if not prodotto_trovato:
-                    match = re.match(pattern_kg, riga_original, re.IGNORECASE)
-                    if match:
-                        print(f"      ✅ MATCH PARENTESI KG TROVATO!")
-                        numero_totale = int(match.group(1))
-                        quantita_per_persona = float(match.group(2))
-                        nome = match.group(3).strip()
-                        
-                        nome = nome.replace('*', '').strip()
-                        
-                        key = nome.lower().replace(' ', '_')
-                        
-                        if key in prodotti and 'kg' in prodotti[key]['quantita']:
-                            quantita_esistente = float(prodotti[key]['quantita'].replace(' kg', ''))
-                            quantita_totale = quantita_esistente + quantita_per_persona
-                            prodotti[key]['quantita'] = f"{quantita_totale} kg"
-                            print(f"   🔄 PARENTESI KG ACCUMULATO: {nome} = {quantita_esistente} + {quantita_per_persona} = {quantita_totale} kg")
-                        else:
-                            prodotti[key] = {
-                                'nome': nome,
-                                'quantita': f"{quantita_per_persona} kg"
-                            }
-                            print(f"   ✅ PARENTESI KG: {nome} = {quantita_per_persona} kg (totale persone: {numero_totale})")
-                        
-                        prodotto_trovato = True
-                
-                if prodotto_trovato:
-                    continue
-                
-                # ========== PATTERN 3: FORMATO TRADIZIONALE PEZZI ==========
-                patterns_pz = [
-                    # NUOVO PATTERN per formato intolleranze (12)7 pz
-                    r'^\((\d+)\)(\d+)\s*pz\s+(.+)$',           # (12)7 pz Pizzette per vegani  
-                    r'^\*\*\((\d+)\)(\d+)\s*pz\s+(.+?)\*\*$',  # **(12)7 pz Pizzette per vegani**
-                    r'^\*\*(\d+)\s*pz\s+(.+?)\*\*$',
-                    r'^(\d+)\s*pz\s+(.+)$',
-                    r'^\*\*(\d+)\s+(.+?)\*\*$',
-                    r'^(\d+)\s+(.+)$'
-                    
-                ]
-                
-                for pattern in patterns_pz:
-                    match = re.match(pattern, riga_original, re.IGNORECASE)
-                    if match:
-                        # ========== GESTIONE PATTERN INTOLLERANZE ==========
-                        if pattern.startswith(r'^\('):  # Pattern con parentesi
-                            totale = int(match.group(1))     # Il numero dentro le parentesi (12)
-                            parziale = int(match.group(2))   # Il numero dopo le parentesi (7)
-                            nome = match.group(3).strip()    # Nome del prodotto
-                            
-                            # USA IL TOTALE invece del parziale
-                            numero = totale  # ← QUESTA È LA CORREZIONE PRINCIPALE
-                            
-                            print(f"   ✅ INTOLLERANZA: ({totale}){parziale} → uso totale {totale} per {nome}")
-                            
-                        else:  # Pattern normali
-                            numero = int(match.group(1))
-                            nome = match.group(2).strip()
-                        
-                        # Pulisci nome da markdown e spazi extra
-                        nome = nome.replace('*', '').strip()
-                        nome = " ".join(nome.split())  # Rimuovi spazi multipli
-                        
-                        # Filtra nomi troppo generici
-                        if len(nome) < 3:
-                            continue
-                        
-                        key = nome.lower().replace(' ', '_')
-                        
-                        if key in prodotti:
-                            try:
-                                numero_esistente = int(prodotti[key]['quantita'].split()[0])
-                                numero_totale = numero_esistente + numero
-                                prodotti[key]['quantita'] = f"{numero_totale} pezzi"
-                                print(f"   🔄 PEZZI ACCUMULATI: {nome} = {numero_esistente} + {numero} = {numero_totale}")
-                            except:
-                                prodotti[key]['quantita'] = f"{numero} pezzi"
-                        else:
-                            prodotti[key] = {
-                                'nome': nome,  # ✅ SOLO IL NOME PULITO
-                                'quantita': f"{numero} pezzi"
-                            }
-                            print(f"   ✅ PEZZI: {nome} = {numero} pezzi")
-                        
-                        prodotto_trovato = True
-                        break
-                
-                # Se non riconosciuto, stampa per debug
-                if not prodotto_trovato and len(riga_original) > 5:
-                    print(f"   ❓ NON RICONOSCIUTO: '{riga_original}'")
-            
-            print(f"🎯 === TOTALE TROVATI: {len(prodotti)} prodotti ===")
-            for key, info in prodotti.items():
-                print(f"   📝 {info['nome']}: {info['quantita']}")
-            
+
+                result = _parse_riga(riga)
+                if result:
+                    nome, quantita = result
+                    if len(nome) >= 3:
+                        _accumula(prodotti, nome, quantita)
+                        if DEBUG_PARSING:
+                            print(f"   ✅ {nome}: {quantita}")
+                else:
+                    if DEBUG_PARSING and len(riga) > 5:
+                        print(f"   ❓ NON RICONOSCIUTO: '{riga}'")
+
+            print(f"🎯 {os.path.basename(path_docx)}: {len(prodotti)} prodotti trovati")
             return prodotti
-            
+
         except Exception as e:
             print(f"❌ Errore lettura Word {path_docx}: {e}")
-            import traceback
             traceback.print_exc()
             return {}
+
+    # -------- AGGIORNA ORDINE --------
+
     def aggiorna_ordine_da_file(self, filepath):
-        """Aggiorna/crea ordine singolo da file Word - CON INTOLLERANZE"""
         try:
             filename = os.path.basename(filepath)
             ordine_id = self.genera_id_ordine(filepath)
-            
-            print(f"🔄 Elaborando ordine ID: {ordine_id}")
-            
-            # Estrai info ordine
             info_ordine = self.estrai_info_ordine_da_filename(filename, filepath)
-            
-            # Leggi quantità dal Word
             quantita_cibo = self.leggi_quantita_da_word(filepath)
-            
-            # 🔥 NUOVO: LEGGI INTOLLERANZE DAL JSON
-            
-            # Crea/aggiorna ordine completo
+
             ordine_completo = {
                 'id': ordine_id,
                 'info': info_ordine,
@@ -769,191 +611,205 @@ class ServerCentraleCloud:
                 'stato': 'attivo',
                 'ultimo_aggiornamento': datetime.now().isoformat()
             }
-            
-            # Salva ordine singolo 
-            self.ordini_singoli[ordine_id] = ordine_completo
-            
-            # Rigenera aggregazione
+
+            with self._lock:
+                self.ordini_singoli[ordine_id] = ordine_completo
+
             self.rigenera_aggregazione()
-            
             self.last_update = datetime.now()
-            
-            # ===== SYNC IMMEDIATO FIREBASE =====
-            # ===== SYNC SELETTIVO FIREBASE =====
+
             if self.firebase.firebase_enabled:
-                # Sync solo questo ordine specifico, non tutti
-                ordini_da_syncronizzare = {ordine_id: ordine_completo}
-                self.firebase.upload_ordini(ordini_da_syncronizzare, self.ordini_aggregati)
-            
+                self.firebase.upload_ordini({ordine_id: ordine_completo}, self.ordini_aggregati)
+                with self._lock:
+                    self._synced_timestamps[ordine_id] = ordine_completo['ultimo_aggiornamento']
+
             print(f"✅ Ordine {ordine_id} aggiornato: {info_ordine['nome_cliente']} - {info_ordine['data_evento']}")
-            print(f"   🍽️ {len(quantita_cibo)} prodotti trovati")
-            
+
         except Exception as e:
             print(f"❌ Errore aggiornamento ordine {filepath}: {e}")
+            traceback.print_exc()
 
-    # 🔥 AGGIUNGI QUESTA NUOVA FUNZIONE ALLA CLASSE ServerCentraleCloud:
+    # -------- AGGREGAZIONE --------
 
-# 🔥 AGGIUNGI import json ALL'INIZIO DEL FILE se non c'è già:
-            
     def rigenera_aggregazione(self):
-        """Rigenera aggregazione da ordini singoli"""
-        self.ordini_aggregati = defaultdict(lambda: defaultdict(lambda: {"quantita": 0, "unita": ""}))
-        
-        for ordine_id, ordine in self.ordini_singoli.items():
-            data_evento = ordine['info']['data_evento']
+        agg = defaultdict(lambda: defaultdict(lambda: {"quantita": 0, "unita": ""}))
+
+        with self._lock:
+            snapshot = dict(self.ordini_singoli)
+
+        for ordine_id, ordine in snapshot.items():
+            data_evento = ordine['info'].get('data_evento')
             if not data_evento:
                 continue
-                
             for key, info_cibo in ordine['cibo'].items():
                 nome_prodotto = info_cibo['nome']
                 quantita_str = info_cibo['quantita']
-                
-                # Estrai numero e unità
-                numero_match = re.search(r'(\d+\.?\d*)', quantita_str)
-                if numero_match:
-                    numero = float(numero_match.group(1))
-                    unita = quantita_str.replace(numero_match.group(1), '').strip()
-                    
-                    self.ordini_aggregati[data_evento][nome_prodotto]["quantita"] += numero
-                    if not self.ordini_aggregati[data_evento][nome_prodotto]["unita"]:
-                        self.ordini_aggregati[data_evento][nome_prodotto]["unita"] = unita
-        
+                m = re.search(r'(\d+\.?\d*)', quantita_str)
+                if m:
+                    numero = float(m.group(1))
+                    unita = quantita_str.replace(m.group(1), '').strip()
+                    agg[data_evento][nome_prodotto]["quantita"] += numero
+                    if not agg[data_evento][nome_prodotto]["unita"]:
+                        agg[data_evento][nome_prodotto]["unita"] = unita
+
+        self.ordini_aggregati = agg
         print(f"📊 Aggregazione aggiornata per {len(self.ordini_aggregati)} date")
-    
-    # 🔥 SOSTITUISCI la funzione carica_ordini_esistenti nel tuo server_centrale_cloud.py
+
+    # -------- CARICA ORDINI ESISTENTI --------
 
     def carica_ordini_esistenti(self):
-        """Carica ordini esistenti dalla cartella (ESCLUDENDO vecchi e _cancellati)"""
-        if not os.path.exists(self.cartella_ordini):
-            return
-        
-        print("\n📁 Caricamento ordini esistenti (Filtro: dal mese corrente in poi)...")
-        
-        cartelle_da_controllare = [self.cartella_ordini]
-        if hasattr(self, 'cartella_drive') and os.path.exists(self.cartella_drive):
-            cartelle_da_controllare.append(self.cartella_drive)
-            
-        # 🔥 CALCOLO CUT-OFF: Primo giorno del mese corrente
+        print("\n📁 Caricamento ordini esistenti (dal mese corrente in poi)...")
+
+        cartelle = [self.cartella_ordini]
+        if os.path.exists(self.cartella_drive):
+            cartelle.append(self.cartella_drive)
+
         oggi = datetime.now()
         inizio_mese_corrente = datetime(oggi.year, oggi.month, 1)
-        
-        for cartella in cartelle_da_controllare:
+
+        for cartella in cartelle:
+            if not os.path.exists(cartella):
+                continue
             try:
                 for root, dirs, files in os.walk(cartella):
+                    # Salta cartelle _cancellati
+                    dirs[:] = [d for d in dirs if d != "_cancellati"]
                     if "_cancellati" in root:
                         continue
-                    if "_cancellati" in dirs:
-                        dirs.remove("_cancellati")
-                    
+
                     for filename in files:
-                        if filename.endswith('.docx') and not filename.startswith('~$'):
-                            filepath = os.path.join(root, filename)
-                            
-                            try:
-                                info_ordine = self.estrai_info_ordine_da_filename(filename, filepath)
-                                
-                                # 🔥 FILTRO TEMPORALE INTELLIGENTE
-                                if info_ordine.get('data_evento'):
-                                    try:
-                                        data_str = info_ordine['data_evento'].replace('-', '/')
-                                        data_evento_obj = datetime.strptime(data_str, "%d/%m/%Y")
-                                        if data_evento_obj < inizio_mese_corrente:
-                                            # Ordine vecchio (es. 2025), lo ignoriamo saltando al prossimo
-                                            continue
-                                    except ValueError:
-                                        pass # Se la data è scritta male, lo carichiamo per sicurezza
-                                        
-                                ordine_id = self.genera_id_ordine(filepath)
-                                print(f"🔄 Elaborando ordine recente ID: {ordine_id} da {filepath}")
-                                
-                                quantita_cibo = self.leggi_quantita_da_word(filepath)
-                                
-                                ordine_completo = {
-                                    'id': ordine_id,
-                                    'info': info_ordine,
-                                    'cibo': quantita_cibo,
-                                    'stato': 'attivo',
-                                    'ultimo_aggiornamento': datetime.now().isoformat()
-                                }
-                                
+                        if not filename.endswith('.docx') or filename.startswith('~$'):
+                            continue
+                        filepath = os.path.join(root, filename)
+                        try:
+                            info_ordine = self.estrai_info_ordine_da_filename(filename, filepath)
+
+                            # Filtro temporale: ignora ordini di mesi passati
+                            if info_ordine.get('data_evento'):
+                                try:
+                                    data_str = info_ordine['data_evento'].replace('-', '/')
+                                    data_evento_obj = datetime.strptime(data_str, "%d/%m/%Y")
+                                    if data_evento_obj < inizio_mese_corrente:
+                                        continue
+                                except ValueError:
+                                    pass
+
+                            ordine_id = self.genera_id_ordine(filepath)
+                            quantita_cibo = self.leggi_quantita_da_word(filepath)
+
+                            ordine_completo = {
+                                'id': ordine_id,
+                                'info': info_ordine,
+                                'cibo': quantita_cibo,
+                                'stato': 'attivo',
+                                'ultimo_aggiornamento': datetime.now().isoformat()
+                            }
+
+                            with self._lock:
                                 self.ordini_singoli[ordine_id] = ordine_completo
-                                print(f"📄 Caricato: {info_ordine['nome_cliente']} - {info_ordine['data_evento']}")
-                                
-                            except Exception as e:
-                                print(f"❌ Errore caricamento {filepath}: {e}")
-                                continue
-                                
+
+                            print(f"📄 Caricato: {info_ordine['nome_cliente']} - {info_ordine['data_evento']}")
+
+                        except Exception as e:
+                            print(f"❌ Errore caricamento {filepath}: {e}")
+
             except Exception as e:
-                print(f"❌ Errore controllo cartella {cartella}: {e}")
-                continue
-        
-        # Rigenera aggregazione solo per gli ordini validi
+                print(f"❌ Errore accesso cartella {cartella}: {e}")
+
         self.rigenera_aggregazione()
         self.last_update = datetime.now()
-        
-        # Sync Firebase iniziale
+
         if self.firebase.firebase_enabled:
             print("🔥 Sync Firebase batch iniziale...")
-            self.firebase.upload_ordini(self.ordini_singoli, self.ordini_aggregati)
-        
-        print(f"✅ Caricati {len(self.ordini_singoli)} ordini (ignorati i file dei mesi passati)")
-    def avvia_file_watcher(self):
-        """Avvia il monitoring dei file"""
-        # Crea entrambe le cartelle se non esistono
-        for cartella in [self.cartella_ordini, self.cartella_drive]:
-            if not os.path.exists(cartella):
-                os.makedirs(cartella)
-                print(f"📁 Creata cartella: {cartella}")
-        
+            with self._lock:
+                snapshot = dict(self.ordini_singoli)
+            self.firebase.upload_ordini(snapshot, self.ordini_aggregati)
+            with self._lock:
+                for order_id, order_data in self.ordini_singoli.items():
+                    self._synced_timestamps[order_id] = order_data.get('ultimo_aggiornamento')
+            print(f"📝 Registrati {len(self._synced_timestamps)} timestamp sync")
+
+        with self._lock:
+            count = len(self.ordini_singoli)
+        print(f"✅ Caricati {count} ordini")
+
+    # -------- FILE WATCHER --------
+
+    def _crea_observer(self):
+        """Crea e avvia un nuovo Observer su entrambe le cartelle."""
         event_handler = WordFileHandler(self)
         observer = Observer()
-        
-        # Monitora ENTRAMBE le cartelle
         observer.schedule(event_handler, self.cartella_ordini, recursive=True)
         observer.schedule(event_handler, self.cartella_drive, recursive=True)
-        
+        observer.start()
+        return observer
+
+    def avvia_file_watcher(self):
+        for cartella in [self.cartella_ordini, self.cartella_drive]:
+            os.makedirs(cartella, exist_ok=True)
+            print(f"📁 Cartella pronta: {cartella}")
+
+        self._observer = self._crea_observer()
         print(f"👁️  Monitoring LAN: {self.cartella_ordini}")
         print(f"☁️  Monitoring Drive: {self.cartella_drive}")
-        observer.start()
-        
-        print(f"👁️  Monitoring attivo su: {self.cartella_ordini}")
-        
-        # Mantieni observer in background
-        def keep_observer_alive():
-            try:
-                while True:
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                observer.stop()
-        
-        thread = threading.Thread(target=keep_observer_alive, daemon=True)
-        thread.start()
-    
+
+        def watcher_health_check():
+            while True:
+                time.sleep(60)
+                try:
+                    if not self._observer.is_alive():
+                        print("⚠️ Watcher morto — riavvio in corso...")
+                        try:
+                            self._observer.stop()
+                        except Exception:
+                            pass
+                        self._observer = self._crea_observer()
+                        print("✅ Watcher riavviato correttamente")
+                    elif not self._observer._watches:
+                        print("⚠️ Watcher vivo ma senza watch attivi — riavvio...")
+                        self._observer.stop()
+                        self._observer = self._crea_observer()
+                        print("✅ Watcher riavviato (watches persi)")
+                except Exception as e:
+                    print(f"❌ Errore health check watcher: {e}")
+
+        t = threading.Thread(target=watcher_health_check, daemon=True)
+        t.start()
+        print("🔍 Watcher health check avviato (ogni 60s)")
+
+    # -------- ROUTES --------
+
     def registra_routes(self):
-        """Registra le route API Flask"""
-        
+
+        @self.app.route('/')
+        @self.app.route('/monitor.html')
+        def monitor_page():
+            try:
+                with open('monitor.html', 'r', encoding='utf-8') as f:
+                    return f.read()
+            except FileNotFoundError:
+                return "File monitor.html non trovato", 404
+
         @self.app.route('/api/ordini', methods=['GET'])
         def get_lista_ordini():
-            """Ritorna lista ordini singoli"""
             ordini_lista = []
-            
-            for ordine_id, ordine in self.ordini_singoli.items():
+            with self._lock:
+                snapshot = dict(self.ordini_singoli)
+
+            for ordine_id, ordine in snapshot.items():
                 info = ordine['info']
-                cibo_count = len(ordine['cibo'])
-                
                 ordini_lista.append({
                     'id': ordine_id,
                     'nome_cliente': info['nome_cliente'],
                     'data_evento': info['data_evento'],
                     'filename': info['filename'],
-                    'prodotti_count': cibo_count,
+                    'prodotti_count': len(ordine['cibo']),
                     'stato': ordine['stato'],
                     'ultimo_aggiornamento': ordine['ultimo_aggiornamento']
                 })
-            
-            # Ordina per data evento
+
             ordini_lista.sort(key=lambda x: x['data_evento'] or '9999-12-31')
-            
+
             return jsonify({
                 'ordini': ordini_lista,
                 'totale_ordini': len(ordini_lista),
@@ -961,33 +817,13 @@ class ServerCentraleCloud:
                 'firebase_status': self.firebase.firebase_enabled,
                 'status': 'ok'
             })
-        
-        @self.app.route('/')
-        def monitor_page():
-            """Serve la pagina monitor.html"""
-            try:
-                with open('monitor.html', 'r', encoding='utf-8') as f:
-                    return f.read()
-            except FileNotFoundError:
-                return "File monitor.html non trovato", 404
 
-        @self.app.route('/monitor.html')
-        def monitor_file():
-            """Serve monitor.html come file statico"""
-            try:
-                with open('monitor.html', 'r', encoding='utf-8') as f:
-                    return f.read()
-            except FileNotFoundError:
-                return "File monitor.html non trovato", 404
-        
         @self.app.route('/api/ordini/<ordine_id>/dettagli', methods=['GET'])
         def get_dettagli_ordine(ordine_id):
-            """Ritorna dettagli cibo per ordine specifico"""
-            if ordine_id not in self.ordini_singoli:
+            with self._lock:
+                ordine = self.ordini_singoli.get(ordine_id)
+            if ordine is None:
                 return jsonify({'error': 'Ordine non trovato'}), 404
-            
-            ordine = self.ordini_singoli[ordine_id]
-            
             return jsonify({
                 'ordine_id': ordine_id,
                 'info': ordine['info'],
@@ -995,173 +831,160 @@ class ServerCentraleCloud:
                 'stato': ordine['stato'],
                 'ultimo_aggiornamento': ordine['ultimo_aggiornamento']
             })
-        
+
         @self.app.route('/api/ordini/aggregati', methods=['GET'])
         def get_ordini_aggregati():
-            """Ritorna ordini aggregati"""
             return jsonify({
                 'ordini': self.ordini_aggregati,
                 'last_update': self.last_update.isoformat(),
                 'status': 'ok'
             })
-        
+
         @self.app.route('/api/status', methods=['GET'])
         def get_status():
-            """Ritorna status del server"""
+            with self._lock:
+                n_ordini = len(self.ordini_singoli)
+                date_attive = list(self.ordini_aggregati.keys())
             return jsonify({
                 'status': 'online',
-                'ordini_singoli': len(self.ordini_singoli),
-                'date_attive': list(self.ordini_aggregati.keys()),
+                'ordini_singoli': n_ordini,
+                'date_attive': date_attive,
                 'last_update': self.last_update.isoformat(),
                 'cartella_ordini': self.cartella_ordini,
                 'firebase_enabled': self.firebase.firebase_enabled,
-                'versione': '2.0-CLOUD con Firebase'
+                'versione': '3.1'
             })
-        
-        # ===== NUOVO: FORCE SYNC ENDPOINT =====
+
         @self.app.route('/api/firebase/sync', methods=['POST'])
         def force_firebase_sync():
-            """Forza sincronizzazione immediata con Firebase"""
             if not self.firebase.firebase_enabled:
-                return jsonify({
-                    'success': False,
-                    'error': 'Firebase non abilitato'
-                }), 400
-            
-            success = self.firebase.upload_ordini(self.ordini_singoli, self.ordini_aggregati)
-            
+                return jsonify({'success': False, 'error': 'Firebase non abilitato'}), 400
+            with self._lock:
+                snapshot = dict(self.ordini_singoli)
+            success = self.firebase.upload_ordini(snapshot, self.ordini_aggregati)
             return jsonify({
                 'success': success,
                 'message': 'Sync Firebase completato' if success else 'Errore sync Firebase',
                 'timestamp': datetime.now().isoformat()
             })
-        
+
         @self.app.route('/api/delete-orders', methods=['POST'])
         def delete_orders():
-            """Cancella ordini specificati DA FIREBASE E DAI FILE FISICI"""
+            """Cancella ordini da server locale, file fisici e Firebase."""
             try:
                 data = request.get_json()
                 order_ids = data.get('orderIds', [])
-                
+
                 if not order_ids:
                     return jsonify({'success': False, 'error': 'Nessun ordine specificato'}), 400
-                
+
                 deleted_count = 0
                 deleted_files = []
                 errors = []
-                
-                # 🔥 STEP 1: Cancella da Firebase PRIMA
-                if self.firebase.firebase_enabled:
-                    print("🔥 Cancellazione da Firebase...")
-                    try:
-                        firebase_admin.initialize_app()
-                        db = firestore.client()
-                        
-                        for order_id in order_ids:
-                            try:
-                                doc_ref = db.collection('ordini_singoli').document(order_id)
-                                doc_ref.delete()
-                                print(f"🗑️ Firebase: cancellato {order_id}")
-                            except Exception as e:
-                                print(f"⚠️ Firebase: errore cancellazione {order_id}: {e}")
-                                
-                    except Exception as e:
-                        print(f"⚠️ Errore connessione Firebase: {e}")
-                
-                # 🔥 STEP 2: Cancella da server locale E file fisici
+
+                # STEP 1: Rimuovi dalla memoria locale e sposta i file fisici
                 for order_id in order_ids:
-                    try:
-                        if order_id in self.ordini_singoli:
-                            # Ottieni il path del file prima di cancellare
-                            filepath = self.ordini_singoli[order_id]['info'].get('filepath', '')
-                            
-                            # Cancella dal dizionario server
-                            del self.ordini_singoli[order_id]
-                            deleted_count += 1
-                            
-                            # 🔥 CANCELLA ANCHE IL FILE FISICO
-                            if filepath and os.path.exists(filepath):
-                                try:
-                                    # Sposta il file in una cartella "cancellati" invece di eliminarlo
-                                    deleted_folder = os.path.join(os.path.dirname(filepath), "_cancellati")
-                                    os.makedirs(deleted_folder, exist_ok=True)
-                                    
-                                    filename = os.path.basename(filepath)
-                                    new_path = os.path.join(deleted_folder, filename)
-                                    
-                                    # Se esiste già, aggiungi timestamp
-                                    if os.path.exists(new_path):
-                                        name, ext = os.path.splitext(filename)
-                                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                        new_path = os.path.join(deleted_folder, f"{name}_{timestamp}{ext}")
-                                    
-                                    shutil.move(filepath, new_path)
-                                    deleted_files.append(new_path)
-                                    print(f"📁 File spostato: {filepath} → {new_path}")
-                                    
-                                except Exception as e:
-                                    print(f"⚠️ Errore spostamento file {filepath}: {e}")
-                                    errors.append(f"File {filename}: {str(e)}")
-                            
-                            print(f"🗑️ Server: cancellato {order_id}")
-                        else:
-                            print(f"⚠️ Ordine non trovato nel server: {order_id}")
-                            
-                    except Exception as e:
-                        error_msg = f"Errore cancellazione {order_id}: {str(e)}"
-                        errors.append(error_msg)
-                        print(f"❌ {error_msg}")
-                
-                # 🔥 STEP 3: Rigenera aggregazione
+                    with self._lock:
+                        ordine = self.ordini_singoli.get(order_id)
+
+                    if ordine is None:
+                        print(f"⚠️ Ordine non trovato nel server: {order_id}")
+                        continue
+
+                    filepath = ordine['info'].get('filepath', '')
+
+                    with self._lock:
+                        del self.ordini_singoli[order_id]
+                        self._synced_timestamps.pop(order_id, None)
+                    deleted_count += 1
+
+                    # Sposta il file fisico in _cancellati
+                    if filepath and os.path.exists(filepath):
+                        try:
+                            deleted_folder = os.path.join(os.path.dirname(filepath), "_cancellati")
+                            os.makedirs(deleted_folder, exist_ok=True)
+                            filename = os.path.basename(filepath)
+                            new_path = os.path.join(deleted_folder, filename)
+                            if os.path.exists(new_path):
+                                name, ext = os.path.splitext(filename)
+                                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                new_path = os.path.join(deleted_folder, f"{name}_{ts}{ext}")
+                            shutil.move(filepath, new_path)
+                            deleted_files.append(new_path)
+                            print(f"📁 File spostato: {filepath} → {new_path}")
+                        except Exception as e:
+                            msg = f"File {os.path.basename(filepath)}: {e}"
+                            errors.append(msg)
+                            print(f"⚠️ Errore spostamento file: {msg}")
+
+                    print(f"🗑️ Server: cancellato {order_id}")
+
+                # STEP 2: Cancella da Firebase usando il client già inizializzato
+                # FIX: usare self.firebase.db invece di reinizializzare firebase_admin
+                if self.firebase.firebase_enabled:
+                    self.firebase.delete_ordini(order_ids)
+
+                # STEP 3: Rigenera aggregazione
                 if deleted_count > 0:
                     self.rigenera_aggregazione()
                     self.last_update = datetime.now()
                     print(f"📊 Aggregazione rigenerata dopo cancellazione di {deleted_count} ordini")
-                
+
                 return jsonify({
                     'success': True,
                     'deletedCount': deleted_count,
                     'deletedFiles': deleted_files,
                     'errors': errors,
-                    'message': f'{deleted_count} ordini cancellati (server + file + Firebase)'
+                    'message': f'{deleted_count} ordini cancellati'
                 })
-                
+
             except Exception as e:
                 print(f"❌ Errore cancellazione ordini: {e}")
+                traceback.print_exc()
                 return jsonify({'success': False, 'error': str(e)}), 500
-        
+
+    # -------- AVVIO --------
+
     def avvia_server(self, host='0.0.0.0', port=5001):
-        """Avvia il server Flask"""
-        print(f"🚀 Avvio Server Centrale CLOUD su {host}:{port}")
+        print(f"🚀 Avvio Server Centrale su {host}:{port}")
         print(f"🔥 Firebase: {'✅ ABILITATO' if self.firebase.firebase_enabled else '❌ DISABILITATO'}")
-        print(f"📡 API disponibili:")
-        print(f"   • GET /api/status - Status del server")
-        print(f"   • GET /api/ordini - Lista ordini singoli")
-        print(f"   • GET /api/ordini/<id>/dettagli - Dettagli cibo ordine")
-        print(f"   • GET /api/ordini/aggregati - Tutti aggregati")
-        print(f"   • POST /api/delete-orders - Cancella ordini")
-        print(f"   • POST /api/firebase/sync - Forza sync Firebase")
-        print(f"🌐 Monitor cucina: http://{host}:{port}")
-        
+        print("📡 API disponibili:")
+        print("   • GET  /api/status")
+        print("   • GET  /api/ordini")
+        print("   • GET  /api/ordini/<id>/dettagli")
+        print("   • GET  /api/ordini/aggregati")
+        print("   • POST /api/delete-orders")
+        print("   • POST /api/firebase/sync")
         self.app.run(host=host, port=port, debug=False)
 
 
+# ===========================
+# Entry point
+# ===========================
 def main():
-    """Funzione principale"""
     print("=" * 60)
-    print("🍳 SERVER CENTRALE ORDINI CUCINA - VERSIONE CLOUD")
+    print("🍳 SERVER CENTRALE ORDINI CUCINA")
     print("🔥 Con sincronizzazione Firebase")
     print("=" * 60)
-    
     server = ServerCentraleCloud()
-    
     try:
         server.avvia_server()
     except KeyboardInterrupt:
         print("\n🛑 Server fermato dall'utente")
     except Exception as e:
         print(f"❌ Errore server: {e}")
+        traceback.print_exc()
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    while True:
+        try:
+            print("\n🔄 Avvio/Riavvio del servizio principale...")
+            main()
+        except KeyboardInterrupt:
+            print("\n🛑 Server spento manualmente.")
+            break
+        except Exception as e:
+            print(f"\n💥 ERRORE CRITICO: {e}")
+            print("⏳ Auto-ripristino tra 10 secondi...\n")
+            time.sleep(10)

@@ -1556,7 +1556,9 @@ class StatisticsWindow(QDialog):
         if any(k.startswith("aperitivo a buffet|") and v for k, v in scelte.items()):
             tipo_ap = ordine.get("tipo_ap", "Leggero")
             servizi_trovati.append(f"Aperitivo {tipo_ap}")
-        
+        # Verifica Buffet in saletta
+        if any(k.startswith("buffet in saletta|") and v for k, v in scelte.items()):
+            servizi_trovati.append("Buffet in Saletta")
         # Restituisci tutti i servizi combinati
         if len(servizi_trovati) == 0:
             return "Altro"
@@ -2041,7 +2043,9 @@ class OrderArchiveDialog(QDialog):
         if any(k.startswith("aperitivo a buffet|") and v for k, v in scelte.items()):
             tipo_ap = ordine.get("tipo_ap", "Leggero")
             servizi_trovati.append(f"Aperitivo {tipo_ap}")
-        
+        # Verifica Buffet in saletta
+        if any(k.startswith("buffet in saletta|") and v for k, v in scelte.items()):
+            servizi_trovati.append("Buffet in Saletta")
         # Restituisci tutti i servizi combinati
         if len(servizi_trovati) == 0:
             return "Altro"
@@ -2512,6 +2516,8 @@ class EventBadge(QFrame):
             return "Cena Servita"
         elif any(k.startswith("cena a buffet|") and v for k, v in scelte.items()):
             return "Cena a Buffet"
+        elif any(k.startswith("buffet in saletta|") and v for k, v in scelte.items()):
+            return "buffet in saletta"
         elif any(k.startswith("aperitivo a buffet|") and v for k, v in scelte.items()):
             tipo_ap = self.ordine_data.get("tipo_ap", "Leggero")
             return f"Aperitivo {tipo_ap}"
@@ -3320,6 +3326,8 @@ class EventBadge(QFrame):
             return "Cena Servita"
         elif any(k.startswith("cena a buffet|") and v for k, v in scelte.items()):
             return "Cena a Buffet"
+        elif any(k.startswith("buffet in saletta") and v for k, v in scelte.items()):
+            return "buffet in saletta"
         elif any(k.startswith("aperitivo a buffet|") and v for k, v in scelte.items()):
             tipo_ap = self.ordine_data.get("tipo_ap", "Leggero")
             return f"Aperitivo {tipo_ap}"
@@ -4138,6 +4146,10 @@ class CalendarioEventi(QWidget):
         # Verifica Coffee Break
         if any(k.startswith("coffee break|") and v for k, v in scelte.items()):
             servizi_trovati.append("Coffee Break")
+            
+        # Verifica Coffee/Tea Station
+        if any(k.startswith("coffee/tea station|") and v for k, v in scelte.items()):
+            servizi_trovati.append("Coffee/Tea Station")
         
         # Verifica Tea Break
         if any(k.startswith("tea break|") and v for k, v in scelte.items()):
@@ -4161,6 +4173,9 @@ class CalendarioEventi(QWidget):
         if any(k.startswith("aperitivo a buffet|") and v for k, v in scelte.items()):
             tipo_ap = ordine.get("tipo_ap", "Leggero")
             servizi_trovati.append(f"Aperitivo {tipo_ap}")
+        # Verifica Buffet in saletta
+        if any(k.startswith("buffet in saletta|") and v for k, v in scelte.items()):
+            servizi_trovati.append("Buffet in Saletta")
         
         # Restituisci servizio principale o combinato
         if len(servizi_trovati) == 1:
@@ -4298,7 +4313,7 @@ class CateringApp(QMainWindow):
             "dadini di mortadella", "rombetti di frittata", "mini tramezzini mix",
             "mozzarelline in carrozza", "mini cotolettine", "olive all'ascolana", "olive ascolane",
             "crocchette", "tagliata di frutta", "mozzarelle", "polpettine prosciutto e ricotta",
-             "trancetti tenerina cioccolato", "crescenta a dadini",
+             "trancetti tenerina cioccolato", "crescenta dadini","crescenta a dadini",
              
             "Bocconcini di vitello in salsa ai porcini profumata al tartufo",
             "Filettino di maiale alla Nerone, avvolto in mantello di guanciale grigliato",
@@ -4326,16 +4341,28 @@ class CateringApp(QMainWindow):
             # NOTA: "verdure alla brace" NON è in questo array, quindi andrà in pezzi
         ]
     def _va_in_kg(self, voce):
-        """Controlla se una voce deve essere mostrata in kg usando l'array centralizzato"""
+        """Controlla se una voce deve essere mostrata in kg usando l'array centralizzato e forzature"""
         voce_lower = voce.lower()
 
-        # Eccezione specifica: "macedonia mono+cucch.bio" va sempre in pezzi
+        # 1. Eccezione specifica: la macedonia va sempre in pezzi
         if "macedonia mono" in voce_lower or "mono+cucch" in voce_lower:
             return False
 
+        # 2. 🌟 FORZATURA IN KG PER INSALATE E PIATTI FREDDI
+        # Basta che la stringa contenga una di queste parole per uscire in kg
+        forzature_kg = [
+            "Caprese con mozzarelline ciliegine e pomodorini piccadilly(ceramica/deluxe+decori)",
+    "Insalata di pollo alla nizzarda con sedano pomodorini e olive nere(ceramica/deluxe+decori)",
+    "Insalata di pollo con cetrioli e yogurt(ceramica/deluxe+decori)",
+    "Insalata di pollo marinato alle erbe su carpaccio di cetrioli(ceramica/deluxe+decori)",
+    "Insalatona mista con ananas, pollo alla griglia e semi di zucca(ceramica/deluxe+decori)"
+        ]
+        if any(parola in voce_lower for parola in forzature_kg):
+            return True
+
+        # 3. Controllo standard nell'array
         for ref in self.REFERENZE_IN_KG:
-            ref_lower = ref.lower()
-            if ref_lower in voce_lower:
+            if ref.lower() in voce_lower:
                 return True
 
         return False
@@ -5553,6 +5580,9 @@ class CateringApp(QMainWindow):
             if "tagliata di frutta" in item.lower():
                 checkbox.toggled.connect(lambda checked, k=key: self.gestisci_selezione_tagliata_frutta(self.selected[k], k))
                 print(f" 🍉 Collegata auto-selezione per Tagliata di Frutta: {item}")
+            if "taglieri salumi(piccoli)" in item.lower() or "taglieri salumi piccoli" in item.lower():
+                checkbox.toggled.connect(lambda checked, k=key: self.gestisci_selezione_taglieri_piccoli(self.selected[k], k))
+                print(f"🥓 Collegata auto-selezione per Taglieri salumi piccoli: {item}")
 
 
             # Debug delle voci accessori
@@ -6045,16 +6075,7 @@ class CateringApp(QMainWindow):
                         run.bold = True
                         run.font.size = Pt(11)
             
-            def ordina_cibo(item):
-                voce = item[0].lower()
-                if any(x in voce for x in ["lasagne", "crespelle", "cannelloni", "rosette", "nidi", "gnocchi"]):
-                    return (1, voce)
-                elif "dolc" in voce or "torta" in voce or "crostat" in voce or "tiramisù" in voce:
-                    return (3, voce)
-                else:
-                    return (2, voce)
-            
-            for prodotto, info in sorted(riepilogo_cibo.items(), key=ordina_cibo):
+            for prodotto, info in sorted(riepilogo_cibo.items()):
                 row_cells = table.add_row().cells
                 row_cells[0].text = prodotto
                 
@@ -6196,16 +6217,16 @@ class CateringApp(QMainWindow):
             return f"{int(quantita)} {unita}"
 
     def leggi_quantita_da_word(self, path_docx):
-        """Legge e AGGREGA le quantità da Word ignorando le voci non-cibo e gestendo nomi su più righe"""
+        """Legge e AGGREGA le quantità da Word ignorando le voci non-cibo e moltiplicando i menu intolleranti"""
         if not os.path.exists(path_docx):
             print(f"❌ File Word non trovato: {path_docx}")
             return {}
-            
+        
         try:
             from docx import Document
             import re
-            
             doc = Document(path_docx)
+            
             prodotti = {}
             
             # 1. Estrai testo in modo intelligente (unendo i ritorni a capo accidentali)
@@ -6216,13 +6237,15 @@ class CateringApp(QMainWindow):
                 
                 # Sostituisce i "Shift+Invio" (Vertical Tab) e altri caratteri anomali con veri "A capo"
                 testo = testo.replace('\x0b', '\n').replace('\v', '\n').replace('\r', '\n')
-                
                 linee = testo.split('\n')
+                
                 for linea in linee:
                     linea_strip = linea.strip()
                     if not linea_strip:
                         righe.append("")
                         continue
+                    
+                    # Se inizia con un numero o con una parentesi seguita da numero es: "(3)1 pz"
                     if re.match(r'^[\*\s\(]*\d+', linea_strip):
                         righe.append(linea_strip)
                     else:
@@ -6230,10 +6253,10 @@ class CateringApp(QMainWindow):
                             righe[-1] += " " + linea_strip
                         else:
                             righe.append(linea_strip)
-
+            
             for para in doc.paragraphs:
                 processa_testo(para.text)
-
+                
             celle_visitate = set()
             for table in doc.tables:
                 for row in table.rows:
@@ -6241,63 +6264,73 @@ class CateringApp(QMainWindow):
                         if cell._tc not in celle_visitate:
                             celle_visitate.add(cell._tc)
                             processa_testo(cell.text)
-
+            
             # 2. COSTRUZIONE DELLE DUE MAPPE DI CONTROLLO
-            cibi_validi_esatti = {} # Mappa 1: Per i match esatti (l'utente ha scritto le parentesi)
-            cibi_validi_base = {}   # Mappa 2: Per i match flessibili (l'utente non ha messo parentesi)
+            cibi_validi_esatti = {} 
+            cibi_validi_base = {} 
             
             if hasattr(self, 'voce_originale'):
                 for key, nome_orig in self.voce_originale.items():
                     cat = self.voce_categoria.get(key, "")
                     if cat in ["cibo", "dolci", "intolleranti"]:
-                        # Preparo la chiave per il match esatto (ignoro solo maiuscole e asterischi finali)
                         nome_esatto = nome_orig.replace('*', '').strip().lower()
                         nome_esatto = re.sub(r'\s+', ' ', nome_esatto)
                         cibi_validi_esatti[nome_esatto] = nome_orig
                         
-                        # Preparo la chiave per il match flessibile (tolgo le parentesi)
                         base = re.sub(r'\s*\(.*?\)', '', nome_orig)
                         base = base.replace('*', '').strip().lower()
                         base = re.sub(r'\s+', ' ', base)
-                        # Salvo il flessibile
                         cibi_validi_base[base] = nome_orig
 
-            # 3. Pattern Regex di estrazione
-            pattern_kg = r'^\*?\*?(?:\(\d+\)\s*)?(\d+[\.,]?\d*)\s*kg\s+(.+?)\*?\*?$'
-            pattern_num = r'^\*?\*?(?:\(\d+\)\s*)?(\d+)\s*(?:pz|porzioni)?\s*(.+?)\*?\*?$'
+            # 3. Pattern Regex di estrazione per formati standard e menu intolleranti
+            # Pattern per KG: 3.5 kg Cous cous, oppure (2) 1.5 kg Cous cous
+            pattern_kg = r'^\*?\*?(?:\(\s*(\d+)\s*\)\s*)?(\d+[\.,]?\d*)\s*kg\s+(.+?)\*?\*?$'
+            # Pattern per PEZZI: 10 pz Pizzette, oppure (3)1 pz Bicch C ous C ous
+            pattern_num = r'^\*?\*?(?:\(\s*(\d+)\s*\)\s*)?(\d+)\s*(?:pz|porzioni)?\s*(.+?)\*?\*?$'
 
             for riga in righe:
-                if not riga: continue 
+                if not riga: continue
                 
-                quantita_val = None
+                quantita_totale = None
                 nome_raw = None
                 is_kg = False
                 
                 match_kg = re.match(pattern_kg, riga, re.IGNORECASE)
                 if match_kg:
-                    quantita_val = match_kg.group(1).replace(',', '.')
-                    nome_raw = match_kg.group(2).strip()
+                    # Se c'è il numero tra parentesi (group 1), usiamo quello come totale assoluto.
+                    # Altrimenti usiamo il peso base (group 2).
+                    if match_kg.group(1):
+                        quantita_totale = float(match_kg.group(1))
+                    else:
+                        quantita_totale = float(match_kg.group(2).replace(',', '.'))
+                        
+                    nome_raw = match_kg.group(3).strip()
                     is_kg = True
                 else:
                     match_num = re.match(pattern_num, riga, re.IGNORECASE)
                     if match_num:
-                        quantita_val = match_num.group(1)
-                        nome_raw = match_num.group(2).strip()
-
-                if quantita_val and nome_raw:
+                        # Se c'è il numero tra parentesi (group 1), usiamo quello come totale assoluto.
+                        # Altrimenti usiamo i pezzi base (group 2).
+                        if match_num.group(1):
+                            quantita_totale = int(match_num.group(1))
+                        else:
+                            quantita_totale = int(match_num.group(2))
+                            
+                        nome_raw = match_num.group(3).strip()
+                        
+                if quantita_totale is not None and nome_raw:
                     nome_pulito = nome_raw.replace("**", "").replace("*", "").strip()
-                    nome_pulito = re.sub(r'\s+', ' ', nome_pulito) 
+                    nome_pulito = re.sub(r'\s+', ' ', nome_pulito)
                     
                     skip_words = ["nr progr", "all'attenzione", "persone", "allestimento", "pronti", "tavoli", "tovagliato", "camerieri", "servizio"]
                     if any(skip in nome_pulito.lower() for skip in skip_words):
                         continue
-
+                        
                     is_cibo = False
                     nome_finale = nome_pulito
                     nome_pulito_lower = nome_pulito.lower()
                     
-                    # --- DOPPIO CONTROLLO ---
-                    # TENTATIVO 1: L'utente ha scritto esattamente tutto (incluse parentesi)
+                    # TENTATIVO 1: Match esatto
                     if nome_pulito_lower in cibi_validi_esatti:
                         is_cibo = True
                         nome_finale = cibi_validi_esatti[nome_pulito_lower]
@@ -6308,12 +6341,12 @@ class CateringApp(QMainWindow):
                                 is_cibo = True
                                 nome_finale = cibo_vero
                                 break
-                            
-                    # Fallback extra per sicurezze esterne
+                    
+                    # Fallback extra
                     if not is_cibo and hasattr(self, 'contains_food_items'):
                         if self.contains_food_items([nome_pulito]) and not self.are_real_accessories([nome_pulito]):
                             is_cibo = True
-
+                            
                     if is_cibo:
                         # ===== AGGREGAZIONE =====
                         if nome_finale in prodotti:
@@ -6321,18 +6354,19 @@ class CateringApp(QMainWindow):
                             
                             if is_kg or "kg" in q_esistente_str:
                                 val_es = float(q_esistente_str.replace("kg", "").strip()) if "kg" in q_esistente_str else float(''.join(filter(str.isdigit, q_esistente_str)))
-                                nuovo_tot = val_es + float(quantita_val)
+                                nuovo_tot = val_es + float(quantita_totale)
                                 prodotti[nome_finale]["quantita"] = f"{nuovo_tot:.2f} kg"
                             else:
                                 val_es = int(''.join(filter(str.isdigit, q_esistente_str)))
-                                nuovo_tot = val_es + int(quantita_val)
+                                nuovo_tot = val_es + int(quantita_totale)
                                 prodotti[nome_finale]["quantita"] = f"{nuovo_tot} pz"
                         else:
                             if is_kg:
-                                prodotti[nome_finale] = {"nome": nome_finale, "quantita": f"{float(quantita_val):.2f} kg"}
+                                prodotti[nome_finale] = {"nome": nome_finale, "quantita": f"{float(quantita_totale):.2f} kg"}
                             else:
-                                prodotti[nome_finale] = {"nome": nome_finale, "quantita": f"{int(quantita_val)} pz"}
+                                prodotti[nome_finale] = {"nome": nome_finale, "quantita": f"{int(quantita_totale)} pz"}
 
+            # Trasforma il dizionario nel formato richiesto dal resto dell'app
             risultato = {}
             for i, (nome, info) in enumerate(prodotti.items()):
                 risultato[f"extracted_{i}"] = info
@@ -6340,7 +6374,7 @@ class CateringApp(QMainWindow):
             return risultato
             
         except Exception as e:
-            print(f"❌ Errore lettura Word: {e}")
+            print(f"❌ Errore lettura Word in catering.py: {e}")
             return {}
     
     
@@ -6825,6 +6859,30 @@ class CateringApp(QMainWindow):
             "peso_secondi_aggiunto": peso_secondi_aggiunto,
             "peso_contorni_aggiunto": peso_contorni_aggiunto
         }
+    
+    def _is_vero_accompagnamento(self, key, voce_lower):
+        """
+        Verifica se una referenza è un accompagnamento reale, 
+        filtrando eventuali falsi positivi (es. Finger food con nomi simili).
+        """
+        # Se non è nella lista degli accompagnamenti, esci subito
+        if key not in self.referenze_accompagnamenti:
+            return False
+            
+        # 🛡️ BLACKLIST: Inserisci qui tutte le voci che il sistema 
+        # potrebbe confondere per accompagnamenti ma NON lo sono.
+        falsi_positivi = [
+            "crescenta a dadini",
+            # "eventuale_futuro_finger_food"
+        ]
+        
+        # Se la voce è nella blacklist, NON è un accompagnamento
+        if voce_lower in falsi_positivi:
+            return False
+            
+        return True
+    
+    
     def calcola_quantita(self, key, referenze_cibo, num_pers, servizio_lower, tipo_ap):
         """
         Calcola la quantità per una voce del menu.
@@ -6882,12 +6940,36 @@ class CateringApp(QMainWindow):
                 print(f"   🥓 Taglieri salumi: {num_pers} persone ÷ 20 = {num_taglieri} taglieri")
                 return f"{num_taglieri} pz"
 
+            elif "taglieri salumi(piccoli)" in voce_lower or "taglieri salumi piccoli" in voce_lower:
+                num_taglieri = max(1, math.ceil(num_pers / 5))
+                print(f"   🥓 Taglieri salumi piccoli: {num_pers} persone ÷ 5 = {num_taglieri} taglieri")
+                return f"{num_taglieri} pz"
+
             elif "taglieri formaggi piccoli" in voce_lower:
                 num_taglieri = max(1, int(num_pers / 20))
                 print(f"   🧀 Taglieri formaggi: {num_pers} persone ÷ 20 = {num_taglieri} taglieri")
                 return f"{num_taglieri} pz"
 
-        # GESTIONE SPECIALE: MIELE E COMPOSTA DI FRUTTA (accompagnamenti per taglieri)
+        
+        # GESTIONE SPECIALE:crescenta dadini per Taglieri salumi(piccoli)
+        if voce_lower == "crescenta dadini":
+            # Controlla se sono selezionati i taglieri salumi piccoli
+            taglieri_piccoli_selezionati = False
+            num_taglieri_piccoli = 0
+            for k, checkbox in self.selected.items():
+                if hasattr(checkbox, 'isChecked') and checkbox.isChecked():
+                    voce_k = self.voce_originale.get(k, "").lower()
+                    if "taglieri salumi(piccoli)" in voce_k or "taglieri salumi piccoli" in voce_k:
+                        taglieri_piccoli_selezionati = True
+                        num_taglieri_piccoli = max(1, math.ceil(num_pers / 5))
+                        break
+
+            if taglieri_piccoli_selezionati:
+                # 300g di crescenta per ogni tagliere
+                kg_totali = round(num_taglieri_piccoli * 0.300, 1)
+                print(f"   🥖crescenta dadini: {num_taglieri_piccoli} taglieri × 300g = {kg_totali} kg")
+                # Forza uscita in kg saltando il normale calcolo peso_unitario
+                return f"{kg_totali:.1f} kg"
         if any(item in voce_lower for item in ["miele", "composta di frutta", "composte di frutta"]):
             taglieri_formaggi_selezionati = False
             for k, checkbox in self.selected.items():
@@ -6919,7 +7001,8 @@ class CateringApp(QMainWindow):
         # ==================== CALCOLO QUANTITÀ PER SERVIZI ====================
 
         # COFFEE BREAK e TEA BREAK
-        if "coffee" in servizio_lower or "tea" in servizio_lower:
+        # COFFEE BREAK, TEA BREAK e COFFEE/TEA STATION
+        if "coffee" in servizio_lower or "tea" in servizio_lower or "station" in servizio_lower:
             return self._calcola_coffee_tea_break(key, referenze_cibo, num_pers, servizio_lower)
 
         # LUNCH BOX (deve essere PRIMA di "lunch" per evitare conflitti)
@@ -6934,12 +7017,16 @@ class CateringApp(QMainWindow):
         if "aperitivo" in servizio_lower:
             return self._calcola_aperitivo_buffet(key, referenze_cibo, num_pers, servizio_lower, tipo_ap)
 
-        # CENA SERVITA (priorità maggiore rispetto a "cena")
+        # CENA SERVITA
         if "cena servita" in servizio_lower:
             return self._calcola_cena_servita(key, referenze_cibo, num_pers, servizio_lower)
+            
+        # BUFFET IN SALETTA (Da spostare PRIMA del controllo generico "buffet")
+        if "saletta" in servizio_lower:
+            return self._calcola_buffet_saletta(key, referenze_cibo, num_pers, servizio_lower)
 
-        # CENA A BUFFET
-        if "cena" in servizio_lower or "buffet" in servizio_lower:
+        # CENA A BUFFET (Condizione resa più precisa per evitare falsi positivi)
+        if "cena a buffet" in servizio_lower or ("cena" in servizio_lower and "buffet" in servizio_lower):
             return self._calcola_cena_a_buffet(key, referenze_cibo, num_pers, servizio_lower)
 
         # Fallback temporaneo
@@ -6961,9 +7048,8 @@ class CateringApp(QMainWindow):
         voce_lower = voce.lower()
 
         # ========== GESTIONE ACCOMPAGNAMENTI ==========
-        is_accompagnamento = key in self.referenze_accompagnamenti
-
-        if is_accompagnamento:
+        # Utilizza il controllo centralizzato per evitare falsi positivi
+        if self._is_vero_accompagnamento(key, voce_lower):
             return self._calcola_accompagnamenti(key, num_pers, servizio_lower)
 
         # Determina se è dolce o salato
@@ -6972,18 +7058,24 @@ class CateringApp(QMainWindow):
         # Controlla se ci sono dolci selezionati
         ha_dolci = any(k in self.referenze_dolci for k in referenze_cibo)
 
+        # Identifica se siamo nel nuovo servizio Station
+        is_station = "station" in servizio_lower
+        
         if is_dolce:
-            peso_per_persona = 0.045  # 40g per dolci
+            # Station = 60g dolci | Standard = 45g dolci
+            peso_per_persona = 0.060 if is_station else 0.045
             categoria = "DOLCI"
-            print(f"   ☕ Coffee/Tea Break DOLCI: 40g per persona")
+            print(f" ☕ {'Station' if is_station else 'Coffee/Tea Break'} DOLCI: {peso_per_persona*1000:.0f}g per persona")
         else:
-            # Se non ci sono dolci, i salati prendono tutto il peso (80g)
+            # Se non ci sono dolci, i salati prendono tutto il peso
             if not ha_dolci:
-                peso_per_persona = 0.090  # 80g per salati (senza dolci)
-                print(f"   ☕ Coffee/Tea Break SALATI (senza dolci): 80g per persona")
+                # Station = 120g totali | Standard = 90g totali
+                peso_per_persona = 0.120 if is_station else 0.090
+                print(f" ☕ {'Station' if is_station else 'Coffee/Tea Break'} SALATI (senza dolci): {peso_per_persona*1000:.0f}g per persona")
             else:
-                peso_per_persona = 0.045  # 40g per salati (con dolci)
-                print(f"   ☕ Coffee/Tea Break SALATI (con dolci): 40g per persona")
+                # Station = 60g salati | Standard = 45g salati
+                peso_per_persona = 0.060 if is_station else 0.045
+                print(f" ☕ {'Station' if is_station else 'Coffee/Tea Break'} SALATI (con dolci): {peso_per_persona*1000:.0f}g per persona")
             categoria = "SALATI"
 
         # Raccogli prodotti della stessa categoria con le loro difficoltà
@@ -7041,8 +7133,8 @@ class CateringApp(QMainWindow):
 
         # Peso base primi per lunch buffet: 180g o 100g in base alla presenza di secondi
         if ha_secondi:
-            peso_primi_base_per_persona = 0.100  # 100g con secondi
-            print(f"   🍝 LUNCH BUFFET PRIMI - peso base: 100g per persona (con secondi)")
+            peso_primi_base_per_persona = 0.180  # 100g con secondi
+            print(f"   🍝 LUNCH BUFFET PRIMI - peso base: 180g per persona (con secondi)")
         else:
             peso_primi_base_per_persona = 0.180  # 180g senza secondi
             print(f"   🍝 LUNCH BUFFET PRIMI - peso base: 180g per persona")
@@ -7236,9 +7328,8 @@ class CateringApp(QMainWindow):
             return self._calcola_primi_lunch_buffet(key, num_pers, voce, voce_lower, ha_secondi)
 
         # ========== GESTIONE ACCOMPAGNAMENTI ==========
-        is_accompagnamento = key in self.referenze_accompagnamenti
-
-        if is_accompagnamento:
+        # Utilizza il controllo centralizzato per evitare falsi positivi
+        if self._is_vero_accompagnamento(key, voce_lower):
             return self._calcola_accompagnamenti(key, num_pers, servizio_lower)
 
         # ========== GESTIONE SECONDI E CONTORNI ==========
@@ -7250,15 +7341,15 @@ class CateringApp(QMainWindow):
 
         # Determina pesi in base alla categoria e combinazione di piatti
         if is_secondo:
-            peso_per_persona = 0.130  # 150g sempre
+            peso_per_persona = 0.120  # 150g sempre
             categoria = "SECONDI"
             print(f"   🍖 Lunch Buffet SECONDI: 150g per persona")
         elif is_contorno:
-            peso_per_persona = 0.080  # 90g sempre
+            peso_per_persona = 0.070  # 90g sempre
             categoria = "CONTORNI"
             print(f"   🥗 Lunch Buffet CONTORNI: 90g per persona")
         elif is_dolce:
-            peso_per_persona = 0.080  # 80g sempre
+            peso_per_persona = 0.070  # 80g sempre
             categoria = "DOLCI"
             print(f"   🍰 Lunch Buffet DOLCI: 80g per persona")
         else:
@@ -7399,9 +7490,8 @@ class CateringApp(QMainWindow):
                 return "0 kg"
 
         # ========== GESTIONE ACCOMPAGNAMENTI ==========
-        is_accompagnamento = key in self.referenze_accompagnamenti
-
-        if is_accompagnamento:
+        # Utilizza il controllo centralizzato per evitare falsi positivi
+        if self._is_vero_accompagnamento(key, voce_lower):
             return self._calcola_accompagnamenti(key, num_pers, servizio_lower)
 
         # ========== GESTIONE SALATI E DOLCI ==========
@@ -7622,6 +7712,9 @@ class CateringApp(QMainWindow):
             print(f"   ✅ Risultato: {pezzi_finali} pz")
             return f"{pezzi_finali} pz"
 
+    
+    
+    
     def _calcola_cena_servita(self, key, referenze_cibo, num_pers, servizio_lower):
         """
         Calcola quantità per Cena Servita.
@@ -7913,6 +8006,147 @@ class CateringApp(QMainWindow):
             print(f"   ✅ Risultato: {pezzi_finali} pz")
             return f"{pezzi_finali} pz"
 
+    
+    def _calcola_buffet_saletta(self, key, referenze_cibo, num_pers, servizio_lower):
+        """
+        Calcola quantità per Buffet in Saletta.
+
+        LOGICA:
+        - Finger food salati: 250g per persona
+        - Primi (se scelti): 100g per persona
+          (elaborati: lasagne/crespelle/cannelloni/nidi usano quantità proporzionali come Lunch Buffet)
+        - Dolci: 70g per persona
+        - Distribuzione PROPORZIONALE basata sul coefficiente di difficoltà
+        """
+        voce = self.voce_originale.get(key, key).strip()
+        voce_lower = voce.lower()
+
+        # ========== GESTIONE ACCOMPAGNAMENTI ==========
+        # Utilizza il controllo centralizzato per evitare falsi positivi
+        if self._is_vero_accompagnamento(key, voce_lower):
+            return self._calcola_accompagnamenti(key, num_pers, servizio_lower)
+
+        # ========== GESTIONE PRIMI ==========
+        is_primo = key in self.referenze_primi
+        if is_primo:
+            # Usa la stessa logica del Lunch Buffet ma con peso ridotto (100g/pers)
+            # Per i primi elaborati (lasagne ecc.) usa le stesse formule a pezzi
+            import math
+            primi_elaborati_keywords = ["lasagne", "cannelloni", "rosette", "nidi",
+                                        "crespelle", "rotolini", "intrighi"]
+            if any(pe in voce_lower for pe in primi_elaborati_keywords):
+                ha_altri_primi = len(self.referenze_primi) > 1
+                if "lasagne" in voce_lower:
+                    teglie = max(1, math.ceil(num_pers / 20.0))
+                    return f"{int(teglie)} lasagne"
+                elif "crespelle" in voce_lower:
+                    crespelle = max(8, math.ceil((num_pers * 0.64) / 8.0) * 8) if ha_altri_primi else math.ceil((num_pers * 2) / 8.0) * 8
+                    return f"{int(crespelle)} crespelle"
+                elif "cannelloni" in voce_lower:
+                    cannelloni = max(12, math.ceil((num_pers * 0.64) / 12.0) * 12) if ha_altri_primi else math.ceil((num_pers * 0.64) / 6.0) * 12
+                    return f"{int(cannelloni)} cannelloni"
+                elif "rotolini" in voce_lower or "intrighi" in voce_lower:
+                    quantita_pz = max(12, math.ceil((num_pers * 0.64) / 12.0) * 12) if ha_altri_primi else math.ceil((num_pers * 0.64) / 6.0) * 12
+                    tipo_nome = "intrighi" if "intrighi" in voce_lower else "rotolini"
+                    return f"{int(quantita_pz)} {tipo_nome}"
+                elif "nidi" in voce_lower or "rosette" in voce_lower:
+                    tipo = "nidi" if "nidi" in voce_lower else "rosette"
+                    pezzi = max(18, math.ceil((num_pers * 0.64) / 18.0) * 18) if ha_altri_primi else math.ceil((num_pers * 0.64) / 9.0) * 18
+                    return f"{int(pezzi)} {tipo}"
+            else:
+                # Primi normali/freddi: 100g per persona divisi tra tutti i primi non elaborati
+                num_primi = len(self.referenze_primi)
+                peso_per_primo = (0.100 * num_pers) / max(1, num_primi)
+                # Arrotonda a 0.5 kg
+                intero = int(peso_per_primo)
+                decimale = peso_per_primo - intero
+                if decimale < 0.25:
+                    peso_finale = float(intero)
+                elif decimale < 0.75:
+                    peso_finale = intero + 0.5
+                else:
+                    peso_finale = float(intero + 1)
+                peso_finale = max(0.5, peso_finale)
+                return f"{peso_finale:.1f} kg" if peso_finale != int(peso_finale) else f"{int(peso_finale)} kg"
+
+        # ========== DETERMINA CATEGORIA ==========
+        is_dolce = key in self.referenze_dolci
+        is_secondo = key in self.referenze_secondi if hasattr(self, 'referenze_secondi') else False
+        is_contorno = key in self.referenze_contorni if hasattr(self, 'referenze_contorni') else False
+
+        if is_dolce:
+            peso_per_persona = 0.080   # 70g per dolci
+            categoria = "DOLCI"
+            print(f"   🍰 Buffet in Saletta DOLCI: 70g per persona")
+        elif is_secondo:
+            peso_per_persona = 0.120
+            categoria = "SECONDI"
+            print(f"   🍖 Buffet in Saletta SECONDI: 120g per persona")
+        elif is_contorno:
+            peso_per_persona = 0.070
+            categoria = "CONTORNI"
+            print(f"   🥗 Buffet in Saletta CONTORNI: 70g per persona")
+        else:
+            # Finger food salati
+            peso_per_persona = 0.350   # 250g per persona
+            categoria = "SALATI"
+            print(f"   🍽️ Buffet in Saletta SALATI: 250g per persona")
+
+        # Raccogli prodotti della stessa categoria
+        referenze_stessa_categoria = []
+        somma_difficolta = 0
+
+        for k in referenze_cibo:
+            k_is_dolce = k in self.referenze_dolci
+            k_is_primo = k in self.referenze_primi
+            k_is_secondo = k in self.referenze_secondi if hasattr(self, 'referenze_secondi') else False
+            k_is_contorno = k in self.referenze_contorni if hasattr(self, 'referenze_contorni') else False
+            k_is_acc = k in self.referenze_accompagnamenti
+
+            if k_is_primo or k_is_acc:
+                continue
+
+            stessa_categoria = False
+            if is_dolce and k_is_dolce:
+                stessa_categoria = True
+            elif is_secondo and k_is_secondo:
+                stessa_categoria = True
+            elif is_contorno and k_is_contorno:
+                stessa_categoria = True
+            elif (not is_dolce and not is_secondo and not is_contorno
+                  and not k_is_dolce and not k_is_secondo and not k_is_contorno):
+                stessa_categoria = True
+
+            if stessa_categoria:
+                voce_k = self.voce_originale.get(k, k).strip()
+                dati_k = self.trova_dati_referenza(
+                    voce_k, self.dati_referenze,
+                    {"difficolta": 1.0, "peso_unitario": 0.03333}
+                )
+                somma_difficolta += dati_k["difficolta"]
+                referenze_stessa_categoria.append((k, dati_k["difficolta"]))
+
+        if not referenze_stessa_categoria:
+            return "1 pz"
+
+        dati = self.trova_dati_referenza(
+            voce, self.dati_referenze,
+            {"difficolta": 1.0, "peso_unitario": 0.03333}
+        )
+        difficolta = dati["difficolta"]
+        peso_unitario = dati["peso_unitario"]
+
+        peso_totale = peso_per_persona * num_pers
+        quota = (difficolta / somma_difficolta) * peso_totale
+
+        print(f"   - Peso totale {categoria}: {peso_totale:.3f} kg | quota: {quota:.3f} kg")
+
+        if self._va_in_kg(voce):
+            return f"{quota:.1f} kg"
+        else:
+            pezzi = quota / peso_unitario
+            pezzi_finali = max(1, int(round(pezzi)))
+            return f"{pezzi_finali} pz"
     def _calcola_lunch_box(self, key, referenze_cibo, num_pers, servizio_lower):
         """
         Calcola quantità per Lunch Box.
@@ -8092,6 +8326,26 @@ class CateringApp(QMainWindow):
                 # Crescentine: 1 per persona
                 print(f"   🥮 Crescentine: {num_pers} pz (1 per persona)")
                 return num_pers
+
+        elif "crescenta dadini" in voce.lower():
+            # Controlla se è selezionato "Taglieri salumi(piccoli)"
+            taglieri_piccoli_selezionati = False
+            num_taglieri_piccoli = 0
+            for k, checkbox in self.selected.items():
+                if hasattr(checkbox, 'isChecked') and checkbox.isChecked():
+                    voce_k = self.voce_originale.get(k, "").lower()
+                    if "taglieri salumi(piccoli)" in voce_k or "taglieri salumi piccoli" in voce_k:
+                        taglieri_piccoli_selezionati = True
+                        num_taglieri_piccoli = max(1, math.ceil(num_pers / 5))
+                        break
+
+            if taglieri_piccoli_selezionati:
+                # 300g di crescenta per tagliere → converti in pz (peso_unitario 0.025)
+                # 300g / 25g = 12 pezzi per tagliere
+                pezzi_totali = num_taglieri_piccoli * 12
+                kg_totali = num_taglieri_piccoli * 0.300
+                print(f"   🥖crescenta dadini: {num_taglieri_piccoli} taglieri × 300g = {kg_totali:.1f} kg ({pezzi_totali} pz)")
+                return f"{kg_totali:.1f} kg"
         
         # Gestisce miele, composta di frutta per taglieri formaggi
         elif any(voce_item in voce.lower() for voce_item in ["miele", "composta di frutta", "composte di frutta"]):
@@ -8116,72 +8370,78 @@ class CateringApp(QMainWindow):
             return 1
 
     def gestisci_selezione_insalata(self, checkbox, key_insalata):
-        """Quando viene selezionata un'insalata, attiva automaticamente i condimenti per insalata"""
+        """Quando viene selezionata un'insalata o caprese, attiva automaticamente i condimenti E gli accessori"""
+        
+        # Elenco esatto delle voci che attivano "Acc x porz insalata" e condimenti
+        VOCI_INSALATA_PORZ = [
+            "caprese con mozzarelline ciliegine e pomodorini piccadilly",
+            "insalata di pollo alla nizzarda con sedano pomodorini e olive nere",
+            "insalata di pollo con cetrioli e yogurt",
+            "insalata di pollo con cetrioli, finocchietto e yogurt greco",
+            "insalata di pollo marinato alle erbe su carpaccio di cetrioli",
+            "insalata waldorf con sedano e mele saltate in padella",
+            "insalatina di stagione con pompelmo rosa e melograno",
+            "insalatona mista con ananas, pollo alla griglia e semi di zucca",
+            "insalatona verde mista con mozzarella",
+            "insalatona verde mista con tonno",
+            "insalatona verde mista con tonno e uovo",
+            "insalata di riso con edamame, cavolo viola e pomodorini secchi",
+            "insalata di riso venere con zucchine, pomodorini pachino e basilico",
+        ]
         
         voce_insalata = self.voce_originale.get(key_insalata, "").lower()
         
-        # CORREZIONE: Usa keywords ma escludi i condimenti
-        keywords_insalata = ["insalat", "caprese"]
-        keywords_da_escludere = ["condimento", "condimenti"]  # NUOVO: Escludi condimenti
+        # Pulisci la voce dalle parentesi per il confronto (es. "(ceramica/deluxe+decori)" o "(vasch)")
+        voce_insalata_pulita = voce_insalata.split('(')[0].strip()
         
-        # È un'insalata se contiene le parole chiave MA NON contiene "condimento"
-        is_insalata_speciale = (any(keyword in voce_insalata for keyword in keywords_insalata) and
-                            not any(esclusione in voce_insalata for esclusione in keywords_da_escludere))
+        # Controlla se la voce è nell'elenco esatto
+        is_insalata_speciale = any(
+            voce_insalata_pulita == v or v in voce_insalata_pulita 
+            for v in VOCI_INSALATA_PORZ
+        )
         
         if is_insalata_speciale:
             print(f"🥗 Gestione insalata: {voce_insalata[:50]}...")
-            print(f"   🔍 checkbox.isChecked() = {checkbox.isChecked()}")
             
             if checkbox.isChecked():
-                print(f"   ➡️ Entrando nel ramo SELEZIONE")
-                # SELEZIONE: attiva i condimenti per insalata
+                print(f" ➡️ Entrando nel ramo SELEZIONE")
                 for k, cb in self.selected.items():
                     if hasattr(cb, 'isChecked'):
-                        voce_condimenti = self.voce_originale.get(k, "").lower()
+                        voce_target = self.voce_originale.get(k, "").lower()
                         
-                        # Cerca "Condimento per insalata"
-                        if "condimento" in voce_condimenti and "insalata" in voce_condimenti:
-                            print(f"   🎯 Trovato condimento: chiave={k}")
+                        is_condimento = "condimento" in voce_target and "insalata" in voce_target
+                        is_accessorio_insalata = "acc x porz insalata" in voce_target
+                        
+                        if is_condimento or is_accessorio_insalata:
                             if not cb.isChecked():
                                 cb.setChecked(True)
-                                print(f"✅ Auto-selezionato: {self.voce_originale.get(k, k)} (per insalata)")
-                            else:
-                                print(f"ℹ️ Condimento già selezionato")
-                            break
+                                print(f"✅ Auto-selezionato: {self.voce_originale.get(k, k)}")
             else:
-                print(f"   ➡️ Entrando nel ramo DESELEZIONE")
-                # DESELEZIONE: controlla se ci sono altre insalate selezionate
+                print(f" ➡️ Entrando nel ramo DESELEZIONE")
+                # Controlla se ci sono altre voci dell'elenco ancora selezionate
                 altre_insalate_attive = False
-                
                 for k, cb in self.selected.items():
                     if k != key_insalata and hasattr(cb, 'isChecked') and cb.isChecked():
                         voce_altra = self.voce_originale.get(k, "").lower()
-                        
-                        # CORREZIONE: Controlla che sia un'insalata vera (non un condimento)
-                        is_altra_insalata = (any(keyword in voce_altra for keyword in keywords_insalata) and
-                                            not any(esclusione in voce_altra for esclusione in keywords_da_escludere))
-                        
-                        if is_altra_insalata:
+                        voce_altra_pulita = voce_altra.split('(')[0].strip()
+                        if any(voce_altra_pulita == v or v in voce_altra_pulita for v in VOCI_INSALATA_PORZ):
                             altre_insalate_attive = True
-                            print(f"   🔍 Trovata altra insalata attiva: {voce_altra[:30]}...")
+                            print(f" 🔍 Trovata altra insalata attiva: {voce_altra[:30]}...")
                             break
                 
-                print(f"   📊 Altre insalate attive: {altre_insalate_attive}")
-                
-                # Se non ci sono altre insalate attive, disattiva i condimenti
                 if not altre_insalate_attive:
                     for k, cb in self.selected.items():
                         if hasattr(cb, 'isChecked'):
-                            voce_condimenti = self.voce_originale.get(k, "").lower()
+                            voce_target = self.voce_originale.get(k, "").lower()
                             
-                            if "condimento" in voce_condimenti and "insalata" in voce_condimenti:
+                            is_condimento = "condimento" in voce_target and "insalata" in voce_target
+                            is_accessorio_insalata = "acc x porz insalata" in voce_target
+                            
+                            if is_condimento or is_accessorio_insalata:
                                 cb.setChecked(False)
                                 print(f"❌ Auto-deselezionato: {self.voce_originale.get(k, k)} (nessuna insalata attiva)")
-                                break
-                else:
-                    print(f"ℹ️ Condimento mantenuto (altre insalate ancora attive)")
         else:
-            print(f"   ⚠️ Voce '{voce_insalata[:30]}...' non riconosciuta come insalata speciale")
+            print(f"⏭️ Voce non nell'elenco insalate, nessuna azione: {voce_insalata[:50]}...")
     def gestisci_selezione_tagliata_frutta(self, checkbox, key):
         """Seleziona automaticamente 'Acc x porz frutta' in Optionals > Accessori quando viene scelta la tagliata di frutta"""
         # Se l'utente sta deselezionando, non facciamo nulla
@@ -8202,6 +8462,38 @@ class CateringApp(QMainWindow):
                 
         if not trovato:
             print("⚠️ Impossibile trovare 'Acc x porz frutta' da autoselezionare. Assicurati che esista in Optionals > Accessori nel JSON.")
+            
+    def gestisci_selezione_taglieri_piccoli(self, checkbox, key_tagliere):
+        """Quando si seleziona Taglieri salumi(piccoli), auto-selezionacrescenta dadini"""
+
+        print(f"🥓 Gestione taglieri piccoli: {'selezione' if checkbox.isChecked() else 'deselezione'}")
+
+        if checkbox.isChecked():
+            # Cerca e seleziona "crescenta dadini" in qualsiasi sezione
+            for k, cb in self.selected.items():
+                if hasattr(cb, 'isChecked'):
+                    voce_target = self.voce_originale.get(k, "").lower()
+                    if "crescenta dadini" in voce_target:
+                        if not cb.isChecked():
+                            cb.setChecked(True)
+                            print(f"✅ Auto-selezionato:crescenta dadini")
+        else:
+            # Deselezionacrescenta dadini solo se non ci sono altri taglieri piccoli attivi
+            altri_taglieri_piccoli = False
+            for k, cb in self.selected.items():
+                if k != key_tagliere and hasattr(cb, 'isChecked') and cb.isChecked():
+                    voce_k = self.voce_originale.get(k, "").lower()
+                    if "taglieri salumi(piccoli)" in voce_k or "taglieri salumi piccoli" in voce_k:
+                        altri_taglieri_piccoli = True
+                        break
+
+            if not altri_taglieri_piccoli:
+                for k, cb in self.selected.items():
+                    if hasattr(cb, 'isChecked'):
+                        voce_target = self.voce_originale.get(k, "").lower()
+                        if "crescenta dadini" in voce_target:
+                            cb.setChecked(False)
+                            print(f"❌ Auto-deselezionato:crescenta dadini")
     def gestisci_selezione_secondi_contorni(self, checkbox, key_secondo_contorno):
         """Quando viene selezionato un secondo o contorno, attiva automaticamente pane e accompagnamenti"""
         
@@ -8777,10 +9069,14 @@ class CateringApp(QMainWindow):
         run = p.add_run(text)
         
         # Applica grassetto se richiesto esplicitamente (es. Primi) OPPURE se è una voce speciale
+        # Voci speciali da evidenziare in grassetto (case-insensitive)
         voci_speciali = [
-            "thermos di caffe", "the caldo in thermos", "caffe' espresso,deka,orzo", 
-            "acc x porz", "scaldavivande", "tavolini alti", 
-            "cooktail corner", "cabernet", "chardonnay", "prosecco", "nr.    cam"
+            "thermos di caffe", "the caldo in thermos", "caffe' espresso,deka,orzo",
+            "acc x porz", "scaldavivande", "tavolini alti",
+            "cooktail corner", "cabernet", "chardonnay", "prosecco", "nr.    cam",
+            "the caldo", "the freddo",
+            "caraffa ape analcolico", "caraffa aperitivo analcolico",
+            "caraffa spritz", "aperol spritz"
         ]
         
         if bold or any(speciale in voce.lower() for speciale in voci_speciali):
@@ -9007,7 +9303,7 @@ class CateringApp(QMainWindow):
         QApplication.processEvents()
 
         # ========== DETERMINA SERVIZIO ==========
-        servizi_possibili = ["Coffee Break", "Tea Break", "Lunch Buffet", "Aperitivo a Buffet","Lunch Box","Cena Servita","Cena a Buffet"]
+        servizi_possibili = ["Coffee/Tea Station", "Coffee Break", "Tea Break", "Lunch Buffet", "Aperitivo a Buffet","Lunch Box","Cena Servita","Cena a Buffet","Buffet in saletta"]
         servizio_usato = "SERVIZIO NON DEFINITO"
 
         for servizio_nome in servizi_possibili:
@@ -9069,7 +9365,7 @@ class CateringApp(QMainWindow):
         self.referenze_dolci = []
         self.referenze_salato = []  # Finger food
         self.referenze_accompagnamenti = []  # NUOVA LISTA per pane, grissini, bocconcini
-        accompagnamenti_target = ["pane a fette", "bocconcini alle olive", "grissini"]
+        accompagnamenti_target = ["pane a fette", "bocconcini alle olive", "grissini", "crescenta a dadini"]
 
 
 
@@ -9134,7 +9430,8 @@ class CateringApp(QMainWindow):
             if ("taglieri" in voce_lower or 
                 "miele" in voce_lower or 
                 "composta" in voce_lower or
-                "grissini" in voce_lower):  # ← AGGIUNGI QUESTA RIGA
+                "grissini" in voce_lower or
+                "crescenta dadini" in voce_lower):  # ← AGGIUNGI QUESTA RIGA
                 continue
                 
             if "kg torta" in voce.strip().lower():
@@ -9185,7 +9482,17 @@ class CateringApp(QMainWindow):
                         if "crescentine" in acc_voce:
                             acc_voce_originale = self.voce_originale.get(acc_key, acc_key)
                             acc_quant = self.calcola_quantita(acc_key, referenze_cibo, num_pers, servizio_lower, tipo_ap)
-                            self.stampa_quantita_docx(acc_quant, acc_voce_originale, cibo_cell, bold=False)  # NORMALE
+                            self.stampa_quantita_docx(acc_quant, acc_voce_originale, cibo_cell, bold=False)
+
+            elif "taglieri salumi(piccoli)" in voce_lower or "taglieri salumi piccoli" in voce_lower:
+                # Cercacrescenta dadini (auto-selezionata)
+                for acc_key in self.selected.keys():
+                    if hasattr(self.selected[acc_key], 'isChecked') and self.selected[acc_key].isChecked():
+                        acc_voce = self.voce_originale.get(acc_key, "").lower()
+                        if "crescenta dadini" in acc_voce:
+                            acc_voce_originale = self.voce_originale.get(acc_key, acc_key)
+                            acc_quant = self.calcola_quantita(acc_key, referenze_cibo, num_pers, servizio_lower, tipo_ap)
+                            self.stampa_quantita_docx(acc_quant, acc_voce_originale, cibo_cell, bold=False)
         # 3. SECONDI (grassetto)
         for key in self.referenze_secondi:
             voce = self.voce_originale.get(key, key)
@@ -9204,10 +9511,19 @@ class CateringApp(QMainWindow):
             print(f"🔧 VALORE RESTITUITO da calcola_quantità per {voce}: {quant}")  # ⬅️ AGGIUNGI QUESTO
             self.stampa_quantita_docx(quant, voce, cibo_cell, bold=True)
 
-        # 5. ACCOMPAGNAMENTI (normale)
+        # 5. ACCOMPAGNAMENTI (normale) — deduplicati per nome voce
+        # 5. ACCOMPAGNAMENTI (normale) — deduplicati per nome voce
+        voci_accompagnamenti_stampate = set()
         for key in self.referenze_accompagnamenti:
             voce = self.voce_originale.get(key, key)
             voce_lower = voce.lower()
+
+            # Salta duplicati (stessa voce da tab diversi)
+            if voce_lower in voci_accompagnamenti_stampate:
+                continue
+            voci_accompagnamenti_stampate.add(voce_lower)
+
+           
 
             # Escludi grissini se ci sono taglieri formaggi (già gestiti nella sezione taglieri)
             if "grissini" in voce_lower:
@@ -9288,11 +9604,14 @@ class CateringApp(QMainWindow):
             run.underline = True
             
             # Aggiungi tutte le voci
-            # Voci speciali da evidenziare in grassetto
+            
             voci_speciali = [
-                "thermos di caffe", "the caldo in thermos", "caffe' espresso,deka,orzo", 
-                "acc x porz", "scaldavivande", "tavolini alti", 
-                "cooktail corner", "cabernet", "chardonnay", "prosecco", "nr.    cam"
+                "thermos di caffe", "the caldo in thermos", "caffe' espresso,deka,orzo",
+                "acc x porz", "scaldavivande", "tavolini alti",
+                "cooktail corner", "cabernet", "chardonnay", "prosecco", "nr.    cam",
+                "the caldo", "the freddo",
+                "caraffa ape analcolico", "caraffa aperitivo analcolico",
+                "caraffa spritz", "aperol spritz"
             ]
 
             # Aggiungi tutte le voci
@@ -9369,7 +9688,24 @@ class CateringApp(QMainWindow):
         if not has_accessori:
             has_accessori = any(checkbox.isChecked() and self.voce_categoria.get(k) == "accessori" 
                               for k, checkbox in self.selected.items() if hasattr(checkbox, 'isChecked'))
-
+        if "buffet in saletta" in servizio_lower:
+            print("💰 Aggiungendo riquadro Prezzo vuoto (Buffet in Saletta)")
+            inner_table_prezzo = right_cell.add_table(rows=1, cols=1)
+            inner_cell_prezzo = inner_table_prezzo.cell(0, 0)
+            
+            # Titolo sottolineato e in grassetto (stile identico a Sala/Bevande)
+            p_title_prezzo = inner_cell_prezzo.paragraphs[0]
+            run_prezzo_title = p_title_prezzo.add_run("PREZZO")
+            run_prezzo_title.bold = True
+            run_prezzo_title.underline = True
+            
+            # Riga vuota dove potrai scrivere tu
+            p_spazio = inner_cell_prezzo.add_paragraph()
+            p_spazio.add_run("Costo a pers. € ") # Lascia il simbolo dell'euro pronto
+            p_spazio.add_run("Acconto € ") # Lascia il simbolo dell'euro pronto
+            
+            # Applica i bordi neri alla cella
+            self.apply_borders(inner_cell_prezzo)
         # ========== CREA LE SEZIONI SE NECESSARIO ==========
         if has_bevande:
             add_inner_table_to_cell("Bevande", "bevande", right_cell)
@@ -9639,7 +9975,7 @@ class CateringApp(QMainWindow):
         print("\n🔍 === DEBUG CATEGORIZZAZIONE VOCI ===")
         
         accessori_previsti = [
-            "tavoli da buffet", "tovagliato cotone + coprimacche", "nr.    cam", 
+            "tavoli da buffet", "Tovagliato cotone + coprimacchia", "nr.    cam", 
             "acc.bio", "pinze", "guanti neri", "alzate", "cucch. e forch. bio x finger"
         ]
         
@@ -10208,7 +10544,9 @@ class CateringApp(QMainWindow):
         
         for k, checkbox in self.selected.items():
             if hasattr(checkbox, 'isChecked') and checkbox.isChecked():
-                if k.startswith("coffee break|"):
+                if k.startswith("coffee/tea station|"):
+                    return "Coffee/Tea Station"
+                elif k.startswith("coffee break|"):
                     return "Coffee Break"
                 elif k.startswith("tea break|"):
                     return "Tea Break"  
@@ -10218,6 +10556,8 @@ class CateringApp(QMainWindow):
                     return "Cena Servita"
                 elif k.startswith("cena a buffet|"):
                     return "Cena a Buffet"
+                elif k.startswith("buffet in saletta|"):
+                    return "Buffet in Saletta"
                 elif k.startswith("lunch box|"):  # CORREZIONE: Sintassi corretta
                     return "Lunch Box"
                 elif k.startswith("aperitivo a buffet|"):
