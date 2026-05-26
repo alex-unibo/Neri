@@ -35,6 +35,9 @@ firebase-credentials.json
 #credenziali
 credenziali.json
 
+# Config notifiche (token Telegram, NON va su GitHub)
+notifiche_config.json
+
 # nyc test coverage
 .nyc_output
 
@@ -73,3 +76,30 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# === NeriCatering ===
+
+# VS Code Local History extension (centinaia di copie storiche, non vanno in git)
+.history/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# PyInstaller build output
+build/
+dist/
+*.spec
+
+# Server log (rotato e gestito a runtime)
+server_log.txt
+
+# Dati di runtime / output: file Word degli ordini, riepiloghi, archivi
+ordini_docx/
+ordini_drive/
+riepilogo_cucina/
+archivio_ordini/
+catering_data_backup.json
+
+# Setup task scheduler — generato/personalizzato per macchina
+setup_task_scheduler.bat
