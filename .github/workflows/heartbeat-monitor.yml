@@ -1,0 +1,37 @@
+name: Heartbeat Monitor NeriCatering
+
+# Cron ogni 5 minuti, + trigger manuale per test (workflow_dispatch).
+# NB: GitHub puo' ritardare di qualche minuto i cron molto frequenti.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+# Evita esecuzioni concorrenti: se un job e' gia' in corso, salta il successivo.
+concurrency:
+  group: heartbeat-monitor
+  cancel-in-progress: false
+
+jobs:
+  check-heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install firebase-admin
+
+      - name: Run heartbeat poller
+        env:
+          FIREBASE_CREDENTIALS_JSON: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERT_AFTER_MINUTES: "10"
+        run: python monitor_heartbeat.py
