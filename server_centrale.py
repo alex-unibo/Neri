@@ -16,6 +16,11 @@ import traceback
 import logging
 import sys
 import contextlib
+import signal
+import atexit
+import socket
+import urllib.request
+import urllib.parse
 from datetime import datetime, timedelta
 from collections import defaultdict
 from pathlib import Path
@@ -26,6 +31,16 @@ if getattr(sys, 'frozen', False):
     base_path = os.path.dirname(sys.executable)
 else:
     base_path = os.path.dirname(os.path.abspath(__file__))
+
+# FIX: imposta la CWD a base_path PRIMA di qualunque accesso a file relativo.
+# Senza questo, se l'.exe viene lanciato da Task Scheduler (o da qualunque
+# altro launcher) senza WorkingDirectory esplicita, la CWD diventa System32
+# e tutti i path relativi (firebase-credentials.json, ordini_docx/, ecc.)
+# falliscono silenziosamente.
+try:
+    os.chdir(base_path)
+except Exception:
+    pass
 
 log_path = os.path.join(base_path, 'server_log.txt')
 logging.basicConfig(
@@ -205,6 +220,135 @@ class FirebaseManager:
         t = threading.Thread(target=cleanup_worker, daemon=True)
         t.start()
         print(f"✅ Auto-cleanup avviato (ogni {interval_minutes} minuti)")
+
+
+# ===========================
+# NotificatoreTelegram
+# ===========================
+class NotificatoreTelegram:
+    """Invia notifiche Telegram. Failure-silent: non deve mai far crashare il server."""
+
+    CONFIG_FILENAME = "notifiche_config.json"
+
+    def __init__(self):
+        self.enabled = False
+        self.bot_token = None
+        self.chat_id = None
+        self.heartbeat_cfg = {"enabled": True, "interval_seconds": 60, "alert_after_minutes": 10}
+        self._load_config()
+
+    def _load_config(self):
+        cfg_path = os.path.join(base_path, self.CONFIG_FILENAME)
+        if not os.path.exists(cfg_path):
+            print(f"⚠️ {self.CONFIG_FILENAME} non trovato — notifiche Telegram disabilitate")
+            return
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            tg = cfg.get("telegram") or {}
+            token = (tg.get("bot_token") or "").strip()
+            chat = str(tg.get("chat_id") or "").strip()
+            if tg.get("enabled") and token and chat and not token.startswith("INSERIRE"):
+                self.bot_token = token
+                self.chat_id = chat
+                self.enabled = True
+                print("📲 Notifiche Telegram abilitate")
+            else:
+                print("📲 Notifiche Telegram disabilitate (config incompleta o disattivata)")
+            self.heartbeat_cfg.update(cfg.get("heartbeat") or {})
+        except Exception as e:
+            print(f"⚠️ Errore lettura {self.CONFIG_FILENAME}: {e}")
+
+    def send(self, text):
+        """Invia un messaggio Telegram. Mai solleva eccezione."""
+        if not self.enabled:
+            return False
+        try:
+            url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+            data = urllib.parse.urlencode({
+                "chat_id": self.chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": "true",
+            }).encode("utf-8")
+            req = urllib.request.Request(url, data=data, method="POST")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.status == 200
+        except Exception as e:
+            print(f"⚠️ Notifica Telegram fallita: {e}")
+            return False
+
+    def notify_startup(self):
+        host = socket.gethostname()
+        ts = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        self.send(f"✅ <b>Server centrale AVVIATO</b>\n🖥️ {host}\n🕒 {ts}")
+
+    def notify_shutdown(self, reason):
+        host = socket.gethostname()
+        ts = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        self.send(f"🛑 <b>Server centrale SPENTO</b>\n🖥️ {host}\n🕒 {ts}\n📋 Motivo: {reason}")
+
+    def notify_error(self, msg):
+        host = socket.gethostname()
+        ts = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        self.send(f"⚠️ <b>Errore server centrale</b>\n🖥️ {host}\n🕒 {ts}\n{msg}")
+
+
+# ===========================
+# HeartbeatManager
+# ===========================
+class HeartbeatManager:
+    """
+    Scrive periodicamente sistema/server_heartbeat su Firestore con
+    {last_seen, hostname, pid, status}. Se il server muore, il documento
+    invecchia e un poller esterno (o il monitor) puo accorgersene.
+    """
+
+    DOC_PATH = ("sistema", "server_heartbeat")
+
+    def __init__(self, firebase_manager, interval_seconds=60):
+        self.fb = firebase_manager
+        self.interval = max(15, int(interval_seconds))
+        self.hostname = socket.gethostname()
+        self.pid = os.getpid()
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def _doc_ref(self):
+        if not self.fb or not self.fb.firebase_enabled or not self.fb.db:
+            return None
+        return self.fb.db.collection(self.DOC_PATH[0]).document(self.DOC_PATH[1])
+
+    def _write(self, status, reason=None):
+        ref = self._doc_ref()
+        if ref is None:
+            return
+        payload = {
+            "last_seen": datetime.now().isoformat(),
+            "hostname": self.hostname,
+            "pid": self.pid,
+            "status": status,
+            "heartbeat_interval_seconds": self.interval,
+        }
+        if reason:
+            payload["reason"] = reason
+        try:
+            ref.set(payload, merge=True)
+        except Exception as e:
+            print(f"⚠️ Heartbeat write fallita: {e}")
+
+    def start(self):
+        self._write("running")
+        def loop():
+            while not self._stop_event.wait(self.interval):
+                self._write("running")
+        self._thread = threading.Thread(target=loop, daemon=True, name="HeartbeatThread")
+        self._thread.start()
+        print(f"💓 Heartbeat avviato (ogni {self.interval}s su {'/'.join(self.DOC_PATH)})")
+
+    def stop(self, reason="normal_exit"):
+        self._stop_event.set()
+        self._write("stopped", reason=reason)
 
 
 # ===========================
@@ -395,6 +539,14 @@ class ServerCentraleCloud:
         self.last_update = datetime.now()
 
         self.firebase = FirebaseManager()
+
+        self.notificatore = NotificatoreTelegram()
+        self.heartbeat = HeartbeatManager(
+            self.firebase,
+            interval_seconds=self.notificatore.heartbeat_cfg.get("interval_seconds", 60),
+        )
+        if self.notificatore.heartbeat_cfg.get("enabled", True):
+            self.heartbeat.start()
 
         if self.firebase.firebase_enabled:
             print("\n🧹 Esecuzione cleanup iniziale ordini vecchi...")
@@ -961,12 +1113,86 @@ class ServerCentraleCloud:
 # ===========================
 # Entry point
 # ===========================
+def _registra_shutdown_hooks(server):
+    """
+    Registra signal/atexit/excepthook per garantire che ogni spegnimento
+    'soft' (Ctrl+C, eccezione non gestita, chiusura console) generi una
+    notifica Telegram e un heartbeat 'stopped' su Firebase.
+
+    NB: NON intercetta SIGKILL/TerminateProcess/reboot/blackout — per quelli
+    serve il watchdog OS (Task Scheduler) e il monitoraggio del heartbeat.
+    """
+    state = {"notified": False}
+
+    def _notify_once(reason):
+        if state["notified"]:
+            return
+        state["notified"] = True
+        try:
+            server.heartbeat.stop(reason=reason)
+        except Exception:
+            pass
+        try:
+            server.notificatore.notify_shutdown(reason)
+        except Exception:
+            pass
+
+    def _signal_handler(signum, frame):
+        name = {getattr(signal, n, None): n for n in ("SIGINT", "SIGTERM", "SIGBREAK")}.get(signum, str(signum))
+        print(f"\n🛑 Ricevuto segnale {name}, spegnimento in corso...")
+        _notify_once(f"segnale {name}")
+        sys.exit(0)
+
+    for sig_name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+        s = getattr(signal, sig_name, None)
+        if s is not None:
+            try:
+                signal.signal(s, _signal_handler)
+            except (ValueError, OSError):
+                pass
+
+    atexit.register(lambda: _notify_once("exit normale"))
+
+    def _excepthook(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            _notify_once("KeyboardInterrupt")
+        else:
+            msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))[-1500:]
+            _notify_once(f"eccezione non gestita: {exc_type.__name__}: {exc_value}")
+            try:
+                server.notificatore.notify_error(f"<pre>{msg}</pre>")
+            except Exception:
+                pass
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _excepthook
+
+    def _thread_excepthook(args):
+        msg = "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))[-1500:]
+        try:
+            server.notificatore.notify_error(
+                f"Eccezione nel thread <b>{args.thread.name}</b>:\n<pre>{msg}</pre>"
+            )
+        except Exception:
+            pass
+        print(f"💥 Eccezione nel thread {args.thread.name}: {args.exc_value}")
+        print(msg)
+
+    if hasattr(threading, "excepthook"):
+        threading.excepthook = _thread_excepthook
+
+
 def main():
     print("=" * 60)
     print("🍳 SERVER CENTRALE ORDINI CUCINA")
     print("🔥 Con sincronizzazione Firebase")
     print("=" * 60)
     server = ServerCentraleCloud()
+    _registra_shutdown_hooks(server)
+    try:
+        server.notificatore.notify_startup()
+    except Exception:
+        pass
     try:
         server.avvia_server()
     except KeyboardInterrupt:
@@ -974,6 +1200,11 @@ def main():
     except Exception as e:
         print(f"❌ Errore server: {e}")
         traceback.print_exc()
+        try:
+            server.notificatore.notify_error(f"avvia_server ha sollevato: {e}")
+        except Exception:
+            pass
+        raise
 
 
 if __name__ == '__main__':

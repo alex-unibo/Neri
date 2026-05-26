@@ -7,7 +7,17 @@
       "Bash(dir /b /s __pycache__)",
       "Bash(dir:*)",
       "Bash(findstr:*)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Skill(nericatering)",
+      "Skill(karpathy-guidelines)",
+      "PowerShell(\\(Get-Content server_centrale.py | Measure-Object -Line\\).Lines)",
+      "PowerShell(python -m py_compile server_centrale.py; if \\($?\\) { \"OK\" } else { \"FAIL\" })",
+      "PowerShell(python -c \"import ast; ast.parse\\(open\\('server_centrale.py',encoding='utf-8'\\).read\\(\\)\\); print\\('AST OK'\\)\")",
+      "Read(//c/Users/Alex/.claude/skills/**)",
+      "Read(//c/Users/Alex/.claude/skills/nericatering/**)",
+      "PowerShell(python -m py_compile monitor_heartbeat.py; if \\($?\\) { \"py_compile OK\" } else { \"FAIL\" })",
+      "PowerShell(Get-ChildItem -File | ForEach-Object { [PSCustomObject]@{ Name=$_.Name; SizeKB=[math]::Round\\($_.Length/1KB,1\\); LastWrite=$_.LastWriteTime.ToString\\('yyyy-MM-dd'\\) } } | Sort-Object SizeKB -Descending | Format-Table -AutoSize)",
+      "PowerShell(Get-ChildItem *)"
     ],
     "deny": [],
     "ask": []
