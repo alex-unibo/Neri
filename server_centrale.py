@@ -448,6 +448,13 @@ _SKIP_KEYWORDS = {
     "ore", "orario", "via", "telefono", "email", "fax", "intolleranti"
 }
 
+# Match a parola intera: evita falsi positivi come "sala" dentro "minisalate"
+# o "ore" dentro "orecchiette". \b funziona anche su lettere accentate (re.UNICODE attivo di default in Py3).
+_SKIP_PATTERN = re.compile(
+    r'\b(' + '|'.join(re.escape(k) for k in _SKIP_KEYWORDS) + r')\b',
+    re.IGNORECASE
+)
+
 _PUNCTUATION_ONLY = {"•", "-", "*", "○", "●", "◦", "|", "+", "="}
 
 
@@ -725,7 +732,7 @@ class ServerCentraleCloud:
 
                 riga_lower = riga.lower()
                 # Salta header/keywords, ma non se contiene "kg" (potrebbe essere un prodotto)
-                if any(kw in riga_lower for kw in _SKIP_KEYWORDS) and 'kg' not in riga_lower:
+                if _SKIP_PATTERN.search(riga_lower) and 'kg' not in riga_lower:
                     continue
 
                 result = _parse_riga(riga)
