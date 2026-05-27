@@ -17,7 +17,12 @@
       "Read(//c/Users/Alex/.claude/skills/nericatering/**)",
       "PowerShell(python -m py_compile monitor_heartbeat.py; if \\($?\\) { \"py_compile OK\" } else { \"FAIL\" })",
       "PowerShell(Get-ChildItem -File | ForEach-Object { [PSCustomObject]@{ Name=$_.Name; SizeKB=[math]::Round\\($_.Length/1KB,1\\); LastWrite=$_.LastWriteTime.ToString\\('yyyy-MM-dd'\\) } } | Sort-Object SizeKB -Descending | Format-Table -AutoSize)",
-      "PowerShell(Get-ChildItem *)"
+      "PowerShell(Get-ChildItem *)",
+      "Bash(git show *)",
+      "Read(//tmp/**)",
+      "Skill(nericatering-deploy)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ],
     "deny": [],
     "ask": []
